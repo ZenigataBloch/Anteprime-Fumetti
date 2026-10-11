@@ -64,14 +64,14 @@ fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
             }
             vm.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) }
             LazyColumn {
-                items(shown, key = { it.id }) { p -> Row(p, vm, onOpen) }
+                items(shown, key = { it.id }) { p -> PreviewRow(p, vm, onOpen) }
             }
         }
     }
 }
 
 @Composable
-private fun Row(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
+private fun PreviewRow(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
     val local = p.id in vm.localIds
     ListItem(
         headlineContent = { Text(p.title) },
@@ -100,13 +100,16 @@ fun WebScreen(url: String, title: String, onBack: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(title = { Text(title, maxLines = 1) }, navigationIcon = { TextButton(onClick = onBack) { Text("‹ Indietro") } })
     }) { pad ->
-        AndroidView(Modifier.padding(pad).fillMaxSize(), factory = { ctx ->
-            WebView(ctx).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                webViewClient = WebViewClient()
-                loadUrl(url)
-            }
-        })
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    webViewClient = WebViewClient()
+                    loadUrl(url)
+                }
+            },
+            modifier = Modifier.padding(pad).fillMaxSize()
+        )
     }
 }
