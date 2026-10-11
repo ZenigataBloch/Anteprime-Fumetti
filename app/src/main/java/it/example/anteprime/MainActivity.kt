@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -34,7 +36,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,7 +140,19 @@ fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
             ) {
                 FilterChip(selected = source == null, onClick = { source = null }, label = { Text("Tutti") })
                 Source.values().forEach { s ->
-                    FilterChip(selected = source == s.name, onClick = { source = s.name }, label = { Text(s.label) })
+                    FilterChip(
+                        selected = source == s.name,
+                        onClick = { source = s.name },
+                        label = { Text(s.label) },
+                        leadingIcon = {
+                            Image(
+                                painter = painterResource(s.iconRes()),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(20.dp).clip(RoundedCornerShape(4.dp))
+                            )
+                        }
+                    )
                 }
             }
             vm.errors.forEach {
@@ -224,14 +241,18 @@ private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
     }
 }
 
+private fun Source.iconRes(): Int = when (this) {
+    Source.PANINI -> R.drawable.ic_panini
+    Source.MANICOMIX -> R.drawable.ic_manicomix
+    Source.STAR -> R.drawable.ic_starcomics
+}
+
 @Composable
 private fun SourceBadge(s: Source) {
-    val c = when (s) {
-        Source.PANINI -> Color(0xFFD32F2F)
-        Source.STAR -> Color(0xFF0195DB)
-        Source.MANICOMIX -> Color(0xFFEF6C00)
-    }
-    Box(Modifier.size(40.dp).background(c, CircleShape), contentAlignment = Alignment.Center) {
-        Text(s.label.first().toString(), color = Color.White, fontWeight = FontWeight.Bold)
-    }
+    Image(
+        painter = painterResource(s.iconRes()),
+        contentDescription = s.label,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
+    )
 }
