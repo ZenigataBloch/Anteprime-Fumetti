@@ -4,6 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,14 +43,14 @@ fun PdfScreen(file: File, title: String, onBack: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(title, maxLines = 1) },
-            navigationIcon = { TextButton(onClick = onBack) { Text("‹ Indietro") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
             actions = {
-                TextButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }) { Text("−") }
-                TextButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(2.5f) }) { Text("+") }
+                IconButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }) { Icon(Icons.Default.Remove, "Riduci") }
+                IconButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(2.5f) }) { Icon(Icons.Default.Add, "Ingrandisci") }
             }
         )
     }) { pad ->
-        BoxWithConstraints(Modifier.padding(pad).fillMaxSize()) {
+        BoxWithConstraints(Modifier.padding(pad).fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
             val baseW = maxWidth
             val px = with(LocalDensity.current) { (baseW * zoom).roundToPx() }.coerceAtMost(2400)
             Box(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {

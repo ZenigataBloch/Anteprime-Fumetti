@@ -10,7 +10,7 @@ object Scraper {
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
-    fun request(url: String): Request = Request.Builder().url(url).header("User-Agent", UA).build()
+    fun request(url: String): Request = Request.Builder().url(url).header("User-Agent", UA).header("Accept-Language", "it-IT,it;q=0.9").build()
 
     private fun get(url: String): String = client.newCall(request(url)).execute().use { r ->
         if (!r.isSuccessful) error("HTTP ${r.code} su $url")
@@ -53,8 +53,14 @@ object Scraper {
 
     // ---------- Manicomix: embed Issuu (nessun PDF diretto) ----------
     private val issuuRe = Regex("""(?:https?:)?//e\.issuu\.com/(?:anonymous-)?embed\.html\?[^"'\s<>()\]\\]+""")
+    private fun unescape(s: String): String {
+        var t = s.replace("\\/", "/").replace("\\u0026", "&")
+        repeat(3) { t = t.replace("&amp;", "&").replace("&#038;", "&").replace("&#38;", "&") }
+        return t
+    }
+
     private fun issuu(html: String): List<String> =
-        issuuRe.findAll(html.replace("\\/", "/").replace("&amp;", "&").replace("&#038;", "&"))
+        issuuRe.findAll(unescape(html))
             .map { if (it.value.startsWith("//")) "https:${it.value}" else it.value }
             .filter { !it.contains("pageNumber=") }.toList()
 
