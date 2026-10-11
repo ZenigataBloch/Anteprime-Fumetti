@@ -1,4 +1,4 @@
-name: Build APK
+name: Build e Release
 on:
   push:
     branches: [main]
@@ -20,14 +20,29 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
-      - name: Build debug APK
+
+      # Push normale su main: solo verifica che compili (nessun file da scaricare)
+      - name: Verifica compilazione
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: gradle :app:assembleDebug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: anteprime-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-      - name: Publish release (solo sui tag v*)
+
+      # Tag vX.Y: APK firmato + Release
+      - name: APK firmato
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          export VERSION_NAME="${GITHUB_REF_NAME#v}"
+          export VERSION_CODE="${{ github.run_number }}"
+          gradle :app:assembleRelease
+          mv app/build/outputs/apk/release/app-release.apk "Anteprime-${GITHUB_REF_NAME}.apk"
+
+      - name: Pubblica Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: Anteprime-*.apk
+          generate_release_notes: true

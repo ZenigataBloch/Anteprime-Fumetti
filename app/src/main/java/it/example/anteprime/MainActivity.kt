@@ -1,16 +1,19 @@
 package it.example.anteprime
 
-import android.annotation.SuppressLint
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -19,14 +22,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,7 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
@@ -54,15 +55,42 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Manicomix = Issuu: si apre in Chrome Custom Tabs (motore completo, niente schermata bianca). */
+private fun openWeb(ctx: Context, p: Preview) {
+    val uri = Uri.parse(p.webUrl)
+    runCatching { CustomTabsIntent.Builder().build().launchUrl(ctx, uri) }
+        .onFailure { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
 @Composable
 fun App(vm: VM) {
+    val ctx = LocalContext.current
     var open by remember { mutableStateOf<Preview?>(null) }
     BackHandler(open != null) { open = null }
+
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(vm.notifyEnabled) {
+        if (vm.notifyEnabled && Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     val p = open
-    when {
-        p == null -> ListScreen(vm) { open = it }
-        p.isPdf -> PdfScreen(vm.repo.file(p), p.title) { open = null }
-        else -> WebScreen(p.url, p.title) { open = null }
+    if (p == null) ListScreen(vm) { if (it.isPdf) open = it else openWeb(ctx, it) }
+    else PdfScreen(vm.repo.file(p), p.title) { open = null }
+
+    vm.update?.let { u ->
+        AlertDialog(
+            onDismissRequest = { vm.update = null },
+            title = { Text("Aggiornamento disponibile") },
+            text = { Text("Versione ${u.version}" + if (u.notes.isNotBlank()) "\n\n" + u.notes.take(400) else "") },
+            confirmButton = {
+                TextButton(onClick = { vm.installUpdate() }, enabled = !vm.updating) {
+                    Text(if (vm.updating) "Download…" else "Scarica e installa")
+                }
+            },
+            dismissButton = { TextButton(onClick = { vm.update = null }) { Text("Più tardi") } }
+        )
     }
 }
 
@@ -92,8 +120,8 @@ fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
                         Icon(Icons.Default.Refresh, contentDescription = "Aggiorna")
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.Palette, contentDescription = "Tema") }
-                        ThemeMenu(vm, menu) { menu = false }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Impostazioni") }
+                        SettingsMenu(vm, menu) { menu = false }
                     }
                 }
             )
@@ -133,7 +161,7 @@ fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
 }
 
 @Composable
-private fun ThemeMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
+private fun SettingsMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         ThemeMode.values().forEach { m ->
             DropdownMenuItem(
@@ -143,13 +171,22 @@ private fun ThemeMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
             )
         }
         if (Build.VERSION.SDK_INT >= 31) {
-            HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("Colori dinamici") },
                 leadingIcon = { Checkbox(checked = vm.dynamicColor, onCheckedChange = null) },
                 onClick = { vm.setDynamic(!vm.dynamicColor) }
             )
         }
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("Notifiche nuove anteprime") },
+            leadingIcon = { Checkbox(checked = vm.notifyEnabled, onCheckedChange = null) },
+            onClick = { vm.setNotify(!vm.notifyEnabled) }
+        )
+        DropdownMenuItem(
+            text = { Text("Controlla aggiornamenti (v${BuildConfig.VERSION_NAME})") },
+            onClick = { onDismiss(); vm.checkUpdate(true) }
+        )
     }
 }
 
@@ -196,42 +233,5 @@ private fun SourceBadge(s: Source) {
     }
     Box(Modifier.size(40.dp).background(c, CircleShape), contentAlignment = Alignment.Center) {
         Text(s.label.first().toString(), color = Color.White, fontWeight = FontWeight.Bold)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun WebScreen(url: String, title: String, onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
-            actions = {
-                IconButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) {
-                    Icon(Icons.Default.OpenInBrowser, "Apri nel browser")
-                }
-            }
-        )
-    }) { pad ->
-        AndroidView(
-            factory = { c ->
-                WebView(c).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    webViewClient = WebViewClient()
-                    // Come sul sito: iframe dentro una pagina con origine manicomix.it
-                    val safe = url.replace("&", "&amp;").replace("\"", "&quot;")
-                    val html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-                        "<style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%}</style></head>" +
-                        "<body><iframe src=\"$safe\" allowfullscreen allow=\"fullscreen\"></iframe></body></html>"
-                    loadDataWithBaseURL("https://www.manicomix.it/", html, "text/html", "utf-8", null)
-                }
-            },
-            modifier = Modifier.padding(pad).fillMaxSize()
-        )
     }
 }

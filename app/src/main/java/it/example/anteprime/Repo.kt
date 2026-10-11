@@ -10,6 +10,10 @@ class Repo(ctx: Context) {
     private val dir = File(ctx.filesDir, "pdf").apply { mkdirs() }
     private val prefs = ctx.getSharedPreferences("index", Context.MODE_PRIVATE)
 
+    private val seenPrefs = ctx.getSharedPreferences("seen", Context.MODE_PRIVATE)
+    fun seen(): Set<String> = seenPrefs.getStringSet("ids", emptySet())!!.toSet()
+    fun markSeen(ids: Collection<String>) { seenPrefs.edit().putStringSet("ids", seen() + ids).apply() }
+
     fun file(p: Preview) = File(dir, "${p.id}.pdf")
     fun localIds(): Set<String> = dir.listFiles { f -> f.extension == "pdf" }?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
 
