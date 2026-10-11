@@ -1,0 +1,43 @@
+package it.example.anteprime
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+/** PDF salvati in filesDir/pdf + indice JSON per mostrarli anche offline. */
+class Repo(ctx: Context) {
+    private val dir = File(ctx.filesDir, "pdf").apply { mkdirs() }
+    private val prefs = ctx.getSharedPreferences("index", Context.MODE_PRIVATE)
+
+    fun file(p: Preview) = File(dir, "${p.id}.pdf")
+    fun localIds(): Set<String> = dir.listFiles { f -> f.extension == "pdf" }?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
+
+    fun download(p: Preview) {
+        Scraper.client.newCall(Scraper.request(p.url)).execute().use { r ->
+            if (!r.isSuccessful) error("HTTP ${r.code}")
+            val tmp = File(dir, "${p.id}.tmp")
+            r.body!!.byteStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+            val magic = tmp.inputStream().use { it.readNBytes(4).toString(Charsets.US_ASCII) }
+            if (magic != "%PDF") { tmp.delete(); error("il file scaricato non è un PDF") }
+            tmp.renameTo(file(p))
+        }
+        saveIndex(localIndex().filter { it.id != p.id } + p)
+    }
+
+    fun delete(p: Preview) { file(p).delete(); saveIndex(localIndex().filter { it.id != p.id }) }
+
+    fun localIndex(): List<Preview> {
+        val ids = localIds()
+        val arr = JSONArray(prefs.getString("items", "[]"))
+        return (0 until arr.length()).map { arr.getJSONObject(it) }.map {
+            Preview(Source.valueOf(it.getString("s")), it.getString("t"), it.getString("u"))
+        }.filter { it.id in ids }
+    }
+
+    private fun saveIndex(list: List<Preview>) {
+        val arr = JSONArray()
+        list.forEach { arr.put(JSONObject().put("s", it.source.name).put("t", it.title).put("u", it.url)) }
+        prefs.edit().putString("items", arr.toString()).apply()
+    }
+}
