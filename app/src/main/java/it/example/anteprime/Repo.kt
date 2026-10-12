@@ -14,6 +14,11 @@ class Repo(ctx: Context) {
     fun seen(): Set<String> = seenPrefs.getStringSet("ids", emptySet())!!.toSet()
     fun markSeen(ids: Collection<String>) { seenPrefs.edit().putStringSet("ids", seen() + ids).apply() }
 
+    // ultima pagina letta di ogni PDF scaricato (0-based); si azzera quando il file viene cancellato
+    private val pagePrefs = ctx.getSharedPreferences("lastpage", Context.MODE_PRIVATE)
+    fun lastPage(p: Preview): Int = pagePrefs.getInt(p.id, 0)
+    fun setLastPage(p: Preview, page: Int) { pagePrefs.edit().putInt(p.id, page).apply() }
+
     fun file(p: Preview) = File(dir, "${p.id}.pdf")
     fun localIds(): Set<String> = dir.listFiles { f -> f.extension == "pdf" }?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
 
@@ -29,7 +34,11 @@ class Repo(ctx: Context) {
         saveIndex(localIndex().filter { it.id != p.id } + p)
     }
 
-    fun delete(p: Preview) { file(p).delete(); saveIndex(localIndex().filter { it.id != p.id }) }
+    fun delete(p: Preview) {
+        file(p).delete()
+        pagePrefs.edit().remove(p.id).apply() // cancellato e riscaricato = si riparte dalla prima pagina
+        saveIndex(localIndex().filter { it.id != p.id })
+    }
 
     fun localIndex(): List<Preview> {
         val ids = localIds()
