@@ -22,15 +22,27 @@ class Repo(ctx: Context) {
     fun file(p: Preview) = File(dir, "${p.id}.pdf")
     fun localIds(): Set<String> = dir.listFiles { f -> f.extension == "pdf" }?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
 
-    fun download(p: Preview) {
-        Scraper.client.newCall(Scraper.request(p.url)).execute().use { r ->
-            if (!r.isSuccessful) error("HTTP ${r.code}")
+    /** onProgress (pagine fatte, totali) serve solo ai documenti Issuu (Manicomix), che si scaricano pagina per pagina. */
+    fun download(p: Preview, onProgress: (Int, Int) -> Unit = { _, _ -> }) {
+        if (p.source == Source.MANICOMIX) {
             val tmp = File(dir, "${p.id}.tmp")
-            r.body!!.byteStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o, 64 * 1024) } }
-            // (readNBytes esiste solo da Android 13: su minSdk 24 farebbe crashare il download)
-            val magic = tmp.inputStream().use { i -> ByteArray(4).also { i.read(it) }.toString(Charsets.US_ASCII) }
-            if (magic != "%PDF") { tmp.delete(); error("il file scaricato non è un PDF") }
-            tmp.renameTo(file(p))
+            try {
+                IssuuDownloader.download(p, tmp, onProgress)
+            } catch (e: Exception) {
+                tmp.delete()
+                throw e
+            }
+            if (!tmp.renameTo(file(p))) { tmp.delete(); error("impossibile salvare il file") }
+        } else {
+            Scraper.client.newCall(Scraper.request(p.url)).execute().use { r ->
+                if (!r.isSuccessful) error("HTTP ${r.code}")
+                val tmp = File(dir, "${p.id}.tmp")
+                r.body!!.byteStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o, 64 * 1024) } }
+                // (readNBytes esiste solo da Android 13: su minSdk 24 farebbe crashare il download)
+                val magic = tmp.inputStream().use { i -> ByteArray(4).also { i.read(it) }.toString(Charsets.US_ASCII) }
+                if (magic != "%PDF") { tmp.delete(); error("il file scaricato non è un PDF") }
+                tmp.renameTo(file(p))
+            }
         }
         saveIndex(localIndex().filter { it.id != p.id } + p)
     }

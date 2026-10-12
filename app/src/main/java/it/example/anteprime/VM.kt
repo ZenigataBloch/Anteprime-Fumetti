@@ -141,13 +141,21 @@ class VM(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Avanzamento dei download a pagine (Manicomix): id -> (pagine fatte, totali). */
+    var progress by mutableStateOf(mapOf<String, Pair<Int, Int>>())
+
     fun fetch(p: Preview, onReady: () -> Unit) {
         if (p.id in busy) return
         viewModelScope.launch {
             busy += p.id
-            runCatching { withContext(Dispatchers.IO) { repo.download(p) } }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repo.download(p) { done, total -> viewModelScope.launch { progress = progress + (p.id to (done to total)) } }
+                }
+            }
                 .onSuccess { localIds = repo.localIds(); onReady() }
                 .onFailure { errors = errors + "Download ${p.title}: ${it.message}" }
+            progress = progress - p.id
             busy -= p.id
         }
     }

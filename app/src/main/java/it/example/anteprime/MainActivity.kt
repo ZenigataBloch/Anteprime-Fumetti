@@ -109,7 +109,7 @@ fun App(vm: VM) {
         }
         else -> ListScreen(vm, onNotes = { showNotes = true }) {
             // dalla lista si riparte dall'ultima pagina letta; dalle note, dalla pagina della nota
-            if (it.isPdf) open = Opened(it, vm.repo.lastPage(it)) else openWeb(ctx, it)
+            if (it.isPdf || it.id in vm.localIds) open = Opened(it, vm.repo.lastPage(it)) else openWeb(ctx, it)
         }
     }
 
@@ -255,17 +255,36 @@ private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    p.source.label + when { !p.isPdf -> " · solo online"; local -> " · scaricato"; else -> "" },
+                    p.source.label + when {
+                        local -> " · scaricato"
+                        busy -> vm.progress[p.id]?.let { " · scaricamento ${it.first}/${it.second}" } ?: " · scaricamento…"
+                        !p.isPdf -> " · online"
+                        else -> ""
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             when {
-                !p.isPdf -> Icon(Icons.AutoMirrored.Filled.OpenInNew, "Apri", Modifier.padding(12.dp))
-                busy -> CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
+                busy -> {
+                    val pr = vm.progress[p.id]
+                    if (pr != null && pr.second > 0) {
+                        CircularProgressIndicator(
+                            progress = { pr.first / pr.second.toFloat() },
+                            modifier = Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp
+                        )
+                    } else {
+                        CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
                 local -> {
                     IconButton(onClick = { vm.remove(p) }) { Icon(Icons.Default.Delete, "Elimina") }
                     IconButton(onClick = { onOpen(p) }) { Icon(Icons.AutoMirrored.Filled.MenuBook, "Leggi") }
+                }
+                // Manicomix (Issuu): si apre online toccando la card; il pulsante scarica il PDF per leggerlo offline e cercarci dentro
+                !p.isPdf -> {
+                    IconButton(onClick = { vm.fetch(p) {} }) { Icon(Icons.Default.Download, "Scarica per leggerlo offline") }
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, "Apri online", Modifier.padding(end = 12.dp))
                 }
                 else -> IconButton(onClick = { vm.fetch(p) { onOpen(p) } }) { Icon(Icons.Default.Download, "Scarica e leggi") }
             }
