@@ -18,6 +18,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val vm: VM by viewModels() // la stessa istanza che userebbe viewModel() dentro Compose
@@ -138,13 +141,13 @@ fun App(vm: VM) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
-    var source by rememberSaveable { mutableStateOf<String?>(null) }
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var showFollows by remember { mutableStateOf(false) }
-    val shown = remember(vm.items, vm.localIds, source, onlyLocal) {
-        vm.items.filter { (source == null || it.source.name == source) && (!onlyLocal || it.id in vm.localIds) }
-    }
+    // pagina 0 = Tutti, poi una pagina per fonte; lo swipe cambia fonte
+    val tabs: List<Source?> = remember { listOf<Source?>(null) + Source.values().toList() }
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val scope = rememberCoroutineScope()
     if (showFollows) FollowsDialog(vm) { showFollows = false }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -179,11 +182,15 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(selected = source == null, onClick = { source = null }, label = { Text("Tutti") })
-                Source.values().forEach { s ->
+                FilterChip(
+                    selected = pagerState.currentPage == 0,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    label = { Text("Tutti") }
+                )
+                Source.values().forEachIndexed { i, s ->
                     FilterChip(
-                        selected = source == s.name,
-                        onClick = { source = s.name },
+                        selected = pagerState.currentPage == i + 1,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(i + 1) } },
                         label = { Text(s.label) },
                         leadingIcon = {
                             Image(
@@ -205,13 +212,19 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                     Text(it, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
                 }
             }
-            if (shown.isEmpty() && !vm.loading) {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("Nessun elemento", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                val src = tabs[page]
+                val shown = remember(vm.items, vm.localIds, src, onlyLocal) {
+                    vm.items.filter { (src == null || it.source == src) && (!onlyLocal || it.id in vm.localIds) }
                 }
-            } else {
-                LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(shown, key = { it.id }) { p -> PreviewCard(p, vm, onOpen) }
+                if (shown.isEmpty() && !vm.loading) {
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Text("Nessun elemento", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(shown, key = { it.id }) { p -> PreviewCard(p, vm, onOpen) }
+                    }
                 }
             }
         }
