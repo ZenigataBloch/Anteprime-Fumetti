@@ -1,10 +1,7 @@
 package it.example.anteprime
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,7 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -26,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Notes
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -61,13 +56,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Manicomix = Issuu: si apre in Chrome Custom Tabs (motore completo, niente schermata bianca). */
-private fun openWeb(ctx: Context, p: Preview) {
-    val uri = Uri.parse(p.webUrl)
-    runCatching { CustomTabsIntent.Builder().build().launchUrl(ctx, uri) }
-        .onFailure { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-}
-
 /** PDF aperto nel lettore, con la pagina da cui partire (0-based). */
 private data class Opened(val p: Preview, val page: Int = 0)
 
@@ -91,6 +79,7 @@ fun App(vm: VM) {
         o != null -> PdfScreen(
             file = vm.repo.file(o.p),
             title = o.p.title,
+            source = o.p.source,
             startPage = o.page,
             allTags = vm.allTags,
             onCreateTag = { vm.createTag(it) },
@@ -109,7 +98,7 @@ fun App(vm: VM) {
         }
         else -> ListScreen(vm, onNotes = { showNotes = true }) {
             // dalla lista si riparte dall'ultima pagina letta; dalle note, dalla pagina della nota
-            if (it.isPdf || it.id in vm.localIds) open = Opened(it, vm.repo.lastPage(it)) else openWeb(ctx, it)
+            open = Opened(it, vm.repo.lastPage(it))
         }
     }
 
@@ -244,8 +233,10 @@ private fun SettingsMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
 private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
     val local = p.id in vm.localIds
     val busy = p.id in vm.busy
+    // Manicomix (catalogo da centinaia di pagine): si scarica soltanto, senza aprirlo da solo a fine download
+    val download = { if (!busy) vm.fetch(p) { if (p.source != Source.MANICOMIX) onOpen(p) } }
     Card(
-        onClick = { if (!p.isPdf || local) onOpen(p) else if (!busy) vm.fetch(p) { onOpen(p) } },
+        onClick = { if (local) onOpen(p) else download() },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -258,7 +249,6 @@ private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
                     p.source.label + when {
                         local -> " · scaricato"
                         busy -> vm.progress[p.id]?.let { " · scaricamento ${it.first}/${it.second}" } ?: " · scaricamento…"
-                        !p.isPdf -> " · online"
                         else -> ""
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -281,12 +271,9 @@ private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
                     IconButton(onClick = { vm.remove(p) }) { Icon(Icons.Default.Delete, "Elimina") }
                     IconButton(onClick = { onOpen(p) }) { Icon(Icons.AutoMirrored.Filled.MenuBook, "Leggi") }
                 }
-                // Manicomix (Issuu): si apre online toccando la card; il pulsante scarica il PDF per leggerlo offline e cercarci dentro
-                !p.isPdf -> {
-                    IconButton(onClick = { vm.fetch(p) {} }) { Icon(Icons.Default.Download, "Scarica per leggerlo offline") }
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, "Apri online", Modifier.padding(end = 12.dp))
+                else -> IconButton(onClick = download) {
+                    Icon(Icons.Default.Download, if (p.source == Source.MANICOMIX) "Scarica per leggerlo offline" else "Scarica e leggi")
                 }
-                else -> IconButton(onClick = { vm.fetch(p) { onOpen(p) } }) { Icon(Icons.Default.Download, "Scarica e leggi") }
             }
         }
     }

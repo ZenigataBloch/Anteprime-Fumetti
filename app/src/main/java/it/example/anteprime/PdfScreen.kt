@@ -69,7 +69,7 @@ private const val OCR_WIDTH = 2000 // larghezza a cui si rasterizza la pagina pe
 private val BAR_ZONE = 28.dp // fascia a destra riservata alla scrollbar quando è visibile
 private val THUMB_H = 56.dp
 
-private data class NoteDraft(val text: String, val page: Int, val hint: String? = null)
+private data class NoteDraft(val text: String, val page: Int, val hint: String? = null, val tags: List<String> = emptyList())
 
 /**
  * Lettore PDF locale basato su android.graphics.pdf.PdfRenderer (nessuna libreria esterna per la visualizzazione).
@@ -78,7 +78,8 @@ private data class NoteDraft(val text: String, val page: Int, val hint: String? 
  * Note: evidenziatore = si trascina un rettangolo sul testo e
  * il testo viene riconosciuto (OCR) e proposto come nota, da correggere e taggare prima di salvare (tag creati e cancellati da te).
  * Lente: cerca parole nel PDF (OCR di tutte le pagine la prima volta, poi dalla cache su disco); un risultato si apre
- * alla sua pagina oppure diventa la bozza di una nota (il formato riconosciuto è solo un suggerimento).
+ * alla sua pagina oppure diventa la bozza di una nota. Il riconoscimento delle schede dipende dall'editore ([source]);
+ * formato e colore riconosciuti sono solo suggerimenti di tag.
  * onPageChanged: chiamato a ogni cambio di pagina in cima (serve a ricordare dove si era arrivati).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +87,7 @@ private data class NoteDraft(val text: String, val page: Int, val hint: String? 
 fun PdfScreen(
     file: File,
     title: String,
+    source: Source,
     startPage: Int = 0,
     allTags: List<String> = emptyList(),
     onCreateTag: (String) -> Unit = {},
@@ -404,6 +406,7 @@ fun PdfScreen(
         NoteDialog(
             title = "Nota · pag. ${d.page + 1}" + (d.hint?.let { " · $it" } ?: ""),
             initial = d.text,
+            suggestedTags = d.tags,
             allTags = allTags,
             onCreateTag = onCreateTag,
             onDeleteTag = onDeleteTag,
@@ -419,7 +422,7 @@ fun PdfScreen(
 
     if (searchOpen) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val hits = remember(pages, query) { KeywordSearch.search(pages, KeywordSearch.keywords(query)) }
+        val hits = remember(pages, query, source) { KeywordSearch.search(pages, KeywordSearch.keywords(query), source) }
         ModalBottomSheet(onDismissRequest = { searchOpen = false }, sheetState = sheetState) {
             SearchPanel(
                 query = query,
@@ -436,7 +439,7 @@ fun PdfScreen(
                 },
                 onNote = { h ->
                     searchOpen = false
-                    draft = NoteDraft(h.text, h.page, h.format?.display())
+                    draft = NoteDraft(h.text, h.page, h.info?.display(), h.info?.tags ?: emptyList())
                 }
             )
         }
@@ -506,7 +509,7 @@ private fun SearchPanel(
                         supportingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("pag. ${h.page + 1} · ${h.keyword}")
-                                h.format?.let { f -> AssistChip(onClick = {}, label = { Text(f.display()) }) }
+                                h.info?.let { f -> AssistChip(onClick = {}, label = { Text(f.display()) }) }
                             }
                         },
                         trailingContent = {

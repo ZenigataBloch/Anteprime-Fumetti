@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 /**
  * Dialog per scrivere o correggere una nota (usato anche dal lettore PDF), con i tag.
  * I tag disponibili sono solo quelli del catalogo (allTags): li crei col campo "Nuovo tag"
- * o da "Gestisci", dove puoi anche cancellarli. Nessun tag viene assegnato in automatico: se il testo della nota
- * cita un mese ("novembre 2026") compare solo un suggerimento, che si applica toccandolo.
+ * o da "Gestisci", dove puoi anche cancellarli. Nessun tag viene assegnato in automatico: formato/colore riconosciuti
+ * ([suggestedTags]) e mesi citati nel testo ("novembre 2026") compaiono solo come suggerimento, che si applica toccandolo.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +42,7 @@ fun NoteDialog(
     initial: String,
     initialTags: List<String> = emptyList(),
     initialRelease: String = "",
+    suggestedTags: List<String> = emptyList(),
     allTags: List<String>,
     onCreateTag: (String) -> Unit,
     onDeleteTag: (String) -> Unit,
@@ -53,8 +54,10 @@ fun NoteDialog(
     var selected by remember { mutableStateOf(initialTags.toSet()) }
     var newTag by remember { mutableStateOf("") }
     var managing by remember { mutableStateOf(false) }
-    // mesi citati nel testo (si aggiornano mentre scrivi), esclusi quelli già selezionati: solo suggerimenti
-    val suggestions = remember(text) { Tags.fromText(text) }
+    // suggerimenti: tag riconosciuti dalla scheda (formato, colore) + mesi citati nel testo (si aggiornano mentre scrivi),
+    // esclusi quelli già selezionati. Non vengono mai applicati da soli.
+    val suggestions = (suggestedTags + remember(text) { Tags.fromText(text) })
+        .distinctBy { it.lowercase() }
         .filter { s -> selected.none { it.equals(s, ignoreCase = true) } }
 
     fun addTag() {
@@ -111,7 +114,7 @@ fun NoteDialog(
                 if (suggestions.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Suggeriti dal testo",
+                        "Suggeriti",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
