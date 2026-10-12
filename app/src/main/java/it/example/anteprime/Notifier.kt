@@ -11,11 +11,17 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 object Notifier {
     private const val CHANNEL = "anteprime"
+
+    /** Icona piccola delle notifiche: usala anche per le notifiche delle opere seguite. */
+    val smallIcon: Int get() = R.drawable.ic_stat
 
     /** Controllo periodico (ogni 6 ore, solo con rete). Sopravvive al riavvio del telefono. */
     fun schedule(ctx: Context, on: Boolean) {
@@ -27,13 +33,24 @@ object Notifier {
         wm.enqueueUniquePeriodicWork("scan", ExistingPeriodicWorkPolicy.KEEP, req)
     }
 
-    fun notifyNew(ctx: Context, fresh: List<Preview>) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
+    /** True se si può mostrare una notifica (permesso concesso su Android 13+). */
+    fun canPost(ctx: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    /** Crea (se serve) il canale "Nuove anteprime" e ne restituisce l'id. */
+    fun ensureChannel(ctx: Context): String {
         if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Nuove anteprime", NotificationManager.IMPORTANCE_DEFAULT))
+            ctx.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(NotificationChannel(CHANNEL, "Nuove anteprime", NotificationManager.IMPORTANCE_DEFAULT))
         }
+        return CHANNEL
+    }
+
+    fun notifyNew(ctx: Context, fresh: List<Preview>) {
+        if (fresh.isEmpty() || !canPost(ctx)) return
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        val channel = ensureChannel(ctx)
         val pi = PendingIntent.getActivity(
             ctx, 0, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -41,8 +58,8 @@ object Notifier {
         val style = NotificationCompat.InboxStyle()
         fresh.take(5).forEach { style.addLine("${it.source.label}: ${it.title}") }
         if (fresh.size > 5) style.addLine("…e altre ${fresh.size - 5}")
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat)
+        val n = NotificationCompat.Builder(ctx, channel)
+            .setSmallIcon(smallIcon)
             .setContentTitle(if (fresh.size == 1) "Nuova anteprima" else "${fresh.size} nuove anteprime")
             .setContentText(fresh.first().let { "${it.source.label}: ${it.title}" } + if (fresh.size > 1) " e altre" else "")
             .setStyle(style)
@@ -55,12 +72,14 @@ object Notifier {
 
 class ScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val all = mutableListOf<Preview>()
-        var ok = 0
-        for (f in listOf(Scraper::panini, Scraper::star, Scraper::manicomix)) {
-            runCatching { f() }.onSuccess { all += it; ok++ }
+        // i tre siti si interrogano in parallelo: il controllo dura quanto il più lento, non la somma
+        val results = coroutineScope {
+            listOf(Scraper::panini, Scraper::star, Scraper::manicomix)
+                .map { f -> async { runCatching { f() } } }
+                .awaitAll()
         }
-        if (ok == 0) return@withContext Result.retry()
+        if (results.none { it.isSuccess }) return@withContext Result.retry()
+        val all = results.flatMap { it.getOrNull() ?: emptyList() }
         val repo = Repo(applicationContext)
         val seen = repo.seen()
         if (seen.isEmpty()) {
