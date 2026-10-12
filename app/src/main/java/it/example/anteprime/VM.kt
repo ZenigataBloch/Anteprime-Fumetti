@@ -56,12 +56,16 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     private fun saveNotes(list: List<Note>) { notes = list; notesRepo.save(list) }
 
-    fun addNote(text: String, p: Preview?, page: Int) {
+    /** Tutti i tag in uso, mesi in ordine cronologico e poi gli altri. */
+    val allTags: List<String> get() = Tags.sort(notes.flatMap { it.tags })
+
+    fun addNote(text: String, p: Preview?, page: Int, tags: List<String> = emptyList()) {
         val id = maxOf(System.currentTimeMillis(), (notes.maxOfOrNull { it.id } ?: 0L) + 1)
-        saveNotes(listOf(Note(id, text, p, page)) + notes)
+        saveNotes(listOf(Note(id, text, p, page, tags)) + notes)
     }
 
-    fun editNote(n: Note, text: String) = saveNotes(notes.map { if (it.id == n.id) it.copy(text = text) else it })
+    fun editNote(n: Note, text: String, tags: List<String>) =
+        saveNotes(notes.map { if (it.id == n.id) it.copy(text = text, tags = tags) else it })
 
     fun deleteNote(n: Note) = saveNotes(notes.filter { it.id != n.id })
 

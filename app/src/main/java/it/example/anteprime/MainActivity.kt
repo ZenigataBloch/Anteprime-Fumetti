@@ -92,7 +92,9 @@ fun App(vm: VM) {
             file = vm.repo.file(o.p),
             title = o.p.title,
             startPage = o.page,
-            onAddNote = { text, page -> vm.addNote(text, o.p, page) },
+            allTags = vm.allTags,
+            onAddNote = { text, page, tags -> vm.addNote(text, o.p, page, tags) },
+            onPageChanged = { vm.repo.setLastPage(o.p, it) }, // ricorda l'ultima pagina letta
             onBack = { open = null }
         )
         showNotes -> NotesScreen(vm, onBack = { showNotes = false }) { n ->
@@ -103,7 +105,10 @@ fun App(vm: VM) {
                 if (p.id in vm.localIds) open = Opened(p, page) else vm.fetch(p) { open = Opened(p, page) }
             }
         }
-        else -> ListScreen(vm, onNotes = { showNotes = true }) { if (it.isPdf) open = Opened(it) else openWeb(ctx, it) }
+        else -> ListScreen(vm, onNotes = { showNotes = true }) {
+            // dalla lista si riparte dall'ultima pagina letta; dalle note, dalla pagina della nota
+            if (it.isPdf) open = Opened(it, vm.repo.lastPage(it)) else openWeb(ctx, it)
+        }
     }
 
     vm.update?.let { u ->
@@ -127,8 +132,8 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
     var source by rememberSaveable { mutableStateOf<String?>(null) }
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    val shown = vm.items.filter {
-        (source == null || it.source.name == source) && (!onlyLocal || it.id in vm.localIds)
+    val shown = remember(vm.items, vm.localIds, source, onlyLocal) {
+        vm.items.filter { (source == null || it.source.name == source) && (!onlyLocal || it.id in vm.localIds) }
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,

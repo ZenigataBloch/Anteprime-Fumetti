@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,17 +15,19 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.isSpecified
@@ -40,28 +43,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val MAX_ZOOM = 4f
 private const val MAX_PX = 3200 // limite larghezza bitmap, per non esaurire la memoria
+private const val MAX_PIXELS = 10_000_000 // limite ai pixel totali di una pagina (~40 MB): conta anche l'altezza, non solo la larghezza
 private const val OCR_WIDTH = 2000 // larghezza a cui si rasterizza la pagina per riconoscere il testo selezionato
+private val BAR_ZONE = 28.dp // fascia a destra riservata alla scrollbar quando è visibile
+private val THUMB_H = 56.dp
 
 private data class NoteDraft(val text: String, val page: Int)
 
 /**
  * Lettore PDF locale basato su android.graphics.pdf.PdfRenderer (nessuna libreria esterna per la visualizzazione).
  * Zoom: pinch (ancorato al punto sotto le dita), doppio tap, pulsanti + / -.
+ * Scrollbar: compare mentre si scorre, si trascina per saltare di pagina (con indicatore "pag. X / N").
  * Note: pulsante matita = nota scritta a mano; evidenziatore = si trascina un rettangolo sul testo e
- * il testo viene riconosciuto (OCR) e proposto come nota, da correggere prima di salvare.
+ * il testo viene riconosciuto (OCR) e proposto come nota, da correggere e taggare prima di salvare.
+ * onPageChanged: chiamato a ogni cambio di pagina in cima (serve a ricordare dove si era arrivati).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,7 +79,9 @@ fun PdfScreen(
     file: File,
     title: String,
     startPage: Int = 0,
-    onAddNote: (text: String, page: Int) -> Unit,
+    allTags: List<String> = emptyList(),
+    onAddNote: (text: String, page: Int, tags: List<String>) -> Unit,
+    onPageChanged: (page: Int) -> Unit = {},
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -78,15 +90,19 @@ fun PdfScreen(
     val renderer = remember { PdfRenderer(pfd) }
     val mutex = remember { Mutex() } // PdfRenderer apre una sola pagina alla volta
     DisposableEffect(Unit) {
-        onDispose { runBlocking { mutex.withLock { renderer.close(); pfd.close() } } }
+        // chiusura fuori dal thread principale: se un rendering è in corso, "indietro" non si blocca ad aspettarlo
+        onDispose { CoroutineScope(Dispatchers.IO).launch { mutex.withLock { renderer.close(); pfd.close() } } }
     }
 
-    // altezza/larghezza di ogni pagina: servono per calcolare con precisione il punto di ancoraggio dello zoom
+    // altezza/larghezza di ogni pagina: servono per calcolare con precisione il punto di ancoraggio dello zoom.
+    // Aprire tutte le pagine una per una è lento sui PDF lunghi, quindi il risultato è in cache su disco.
     val ratios by produceState<List<Float>?>(null) {
+        val cache = File(ctx.cacheDir, "ratios_${file.name}.txt")
         value = withContext(Dispatchers.Default) {
-            mutex.withLock {
-                List(renderer.pageCount) { i -> renderer.openPage(i).use { it.height.toFloat() / it.width } }
-            }
+            val n = mutex.withLock { renderer.pageCount }
+            readRatios(cache, file.length(), n) ?: mutex.withLock {
+                List(n) { i -> renderer.openPage(i).use { it.height.toFloat() / it.width } }
+            }.also { writeRatios(cache, file.length(), it) }
         }
     }
 
@@ -98,6 +114,14 @@ fun PdfScreen(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = startPage.coerceAtLeast(0))
     val gap = 4.dp
     val gapPx = with(LocalDensity.current) { gap.toPx() }
+    val barZonePx = with(LocalDensity.current) { BAR_ZONE.toPx() }
+    var barVisible by remember { mutableStateOf(false) }    // scrollbar visibile (e quindi afferrabile)
+
+    // ricorda la pagina in cima: salva solo quando cambia (SharedPreferences.apply è leggero)
+    val pageCallback by rememberUpdatedState(onPageChanged)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }.collect { pageCallback(it) }
+    }
 
     // --- note ---
     var selectMode by remember { mutableStateOf(false) }     // evidenziatore attivo
@@ -223,7 +247,7 @@ fun PdfScreen(
                 IconButton(onClick = { draft = NoteDraft("", listState.firstVisibleItemIndex) }) { Icon(Icons.Default.Edit, "Nuova nota") }
                 IconToggleButton(checked = selectMode, onCheckedChange = { selectMode = it; selRect = null }) {
                     Icon(
-                        Icons.Default.Highlight,
+                        HighlighterIcon,
                         contentDescription = "Evidenzia testo",
                         tint = if (selectMode) MaterialTheme.colorScheme.primary else LocalContentColor.current
                     )
@@ -250,6 +274,8 @@ fun PdfScreen(
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            // un tocco sulla scrollbar (quando è visibile) è della scrollbar
+                            if (barVisible && down.position.x > viewW - barZonePx) return@awaitEachGesture
                             val selecting = selectMode && !ocrBusy
                             var multiTouch = false
                             do {
@@ -325,6 +351,10 @@ fun PdfScreen(
                     }
                 }
                 if (ocrBusy) CircularProgressIndicator(Modifier.align(Alignment.Center))
+
+                // scrollbar (sopra a tutto il resto)
+                val rr = ratios
+                if (rr != null) PdfScrollbar(listState, rr, vw, vh, zoom, gapPx, barVisible) { barVisible = it }
             }
         }
     }
@@ -333,9 +363,12 @@ fun PdfScreen(
         NoteDialog(
             title = "Nota · pag. ${d.page + 1}",
             initial = d.text,
+            // il mese citato nel titolo del PDF o nel testo viene preselezionato (si può togliere)
+            initialTags = Tags.fromText("$title ${d.text}"),
+            knownTags = allTags,
             onDismiss = { draft = null; selectMode = false },
-            onSave = { text ->
-                onAddNote(text, d.page)
+            onSave = { text, tags ->
+                onAddNote(text, d.page, tags)
                 draft = null
                 selectMode = false
                 Toast.makeText(ctx, "Nota salvata", Toast.LENGTH_SHORT).show()
@@ -344,14 +377,148 @@ fun PdfScreen(
     }
 }
 
+/**
+ * Scrollbar trascinabile. Le altezze di tutte le pagine sono note (ratios), quindi la posizione del pollice
+ * e il salto sono esatti anche con lo zoom. Compare mentre si scorre e sparisce dopo 1,5 s;
+ * mentre è visibile si può afferrare: mostra "pag. X / N" e salta direttamente al punto scelto.
+ */
+@Composable
+private fun PdfScrollbar(
+    listState: LazyListState,
+    ratios: List<Float>,
+    viewW: Float,
+    viewH: Float,
+    zoom: Float,
+    gapPx: Float,
+    visible: Boolean,
+    onVisible: (Boolean) -> Unit
+) {
+    val density = LocalDensity.current
+    val thumbH = with(density) { THUMB_H.toPx() }
+    var dragging by remember { mutableStateOf(false) }
+    val scrolling = listState.isScrollInProgress
+    LaunchedEffect(scrolling, dragging) {
+        if (scrolling || dragging) onVisible(true) else { delay(1500); onVisible(false) }
+    }
+    val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "scrollbar")
+
+    // inizio (px) di ogni pagina nel contenuto già zoomato
+    val w = viewW * zoom
+    val starts = remember(ratios, w, gapPx) {
+        val a = FloatArray(ratios.size)
+        var y = 0f
+        for (i in ratios.indices) { a[i] = y; y += w * ratios[i] + gapPx }
+        a
+    }
+    val maxScroll = if (starts.isEmpty()) 0f else starts.last() + w * ratios.last() - viewH
+    val startsNow by rememberUpdatedState(starts)
+    val maxNow by rememberUpdatedState(maxScroll)
+    val viewHNow by rememberUpdatedState(viewH)
+
+    if (starts.isEmpty() || maxScroll <= 1f || viewH <= thumbH) return
+
+    val first = listState.firstVisibleItemIndex.coerceIn(0, starts.lastIndex)
+    val scrollY = starts[first] + listState.firstVisibleItemScrollOffset
+    val frac = (scrollY / maxScroll).coerceIn(0f, 1f)
+    val thumbTop = frac * (viewH - thumbH)
+    val page = if (frac >= 0.999f) starts.size else indexAt(starts, scrollY + viewH / 2) + 1
+
+    val jumpTo = { y: Float ->
+        val f = ((y - thumbH / 2) / (viewHNow - thumbH)).coerceIn(0f, 1f)
+        val target = f * maxNow
+        val st = startsNow
+        val i = indexAt(st, target)
+        listState.requestScrollToItem(i, (target - st[i]).roundToInt().coerceAtLeast(0))
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        if (dragging) {
+            Surface(
+                color = MaterialTheme.colorScheme.inverseSurface,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.align(Alignment.TopEnd).offset {
+                    IntOffset(-48.dp.roundToPx(), (thumbTop + thumbH / 2 - 14.dp.toPx()).roundToInt())
+                }
+            ) {
+                Text(
+                    "pag. $page / ${starts.size}",
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .width(BAR_ZONE)
+                .fillMaxHeight()
+                .then(
+                    // il tocco è gestito solo quando la scrollbar si vede: altrimenti il bordo destro resta della pagina
+                    if (visible) Modifier.pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            dragging = true
+                            jumpTo(down.position.y)
+                            down.consume()
+                            do {
+                                val ev = awaitPointerEvent()
+                                val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (c.pressed) { jumpTo(c.position.y); c.consume() }
+                            } while (ev.changes.any { it.pressed })
+                            dragging = false
+                        }
+                    } else Modifier
+                )
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset { IntOffset(0, thumbTop.roundToInt()) }
+                    .padding(end = 4.dp)
+                    .width(8.dp)
+                    .height(THUMB_H)
+                    .alpha(alpha)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), RoundedCornerShape(4.dp))
+            )
+        }
+    }
+}
+
+/** Indice dell'ultima pagina che inizia a y o prima (ricerca binaria su starts, che è crescente). */
+private fun indexAt(starts: FloatArray, y: Float): Int {
+    var lo = 0
+    var hi = starts.lastIndex
+    while (lo < hi) {
+        val mid = (lo + hi + 1) / 2
+        if (starts[mid] <= y) lo = mid else hi = mid - 1
+    }
+    return lo
+}
+
+// cache su disco delle proporzioni delle pagine: prima riga = dimensione del PDF (per accorgersi di un file diverso)
+private fun readRatios(f: File, len: Long, n: Int): List<Float>? = runCatching {
+    val lines = f.readLines()
+    if (lines.size != 2 || lines[0].toLong() != len) return@runCatching null
+    lines[1].split(',').map { it.toFloat() }.takeIf { it.size == n }
+}.getOrNull()
+
+private fun writeRatios(f: File, len: Long, r: List<Float>) {
+    runCatching { f.writeText("$len\n${r.joinToString(",")}") }
+}
+
 @Composable
 private fun PdfPage(renderer: PdfRenderer, mutex: Mutex, index: Int, widthPx: Int, ratio: Float) {
-    val bmp by produceState<Bitmap?>(null, index, widthPx) {
+    // oltre al limite di larghezza, un tetto ai pixel totali: pagine molto alte non fanno esplodere la memoria
+    val w = minOf(widthPx, sqrt(MAX_PIXELS / ratio).toInt()).coerceAtLeast(1)
+    val bmp by produceState<Bitmap?>(null, index, w) {
         value = withContext(Dispatchers.Default) {
             mutex.withLock {
+                // se nel frattempo la pagina è uscita dallo schermo (scrollbar, scorrimento veloce) non si renderizza
+                ensureActive()
                 renderer.openPage(index).use { p ->
-                    val h = (widthPx * p.height.toFloat() / p.width).toInt()
-                    Bitmap.createBitmap(widthPx, h, Bitmap.Config.ARGB_8888).also {
+                    val h = (w * p.height.toFloat() / p.width).toInt()
+                    Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
                         it.eraseColor(android.graphics.Color.WHITE)
                         p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     }
@@ -363,7 +530,8 @@ private fun PdfPage(renderer: PdfRenderer, mutex: Mutex, index: Int, widthPx: In
     Box(Modifier.fillMaxWidth().aspectRatio(1f / ratio), Alignment.Center) {
         val b = bmp
         if (b != null) {
-            Image(b.asImageBitmap(), "Pagina ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            val img = remember(b) { b.asImageBitmap() }
+            Image(img, "Pagina ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         } else {
             CircularProgressIndicator()
         }

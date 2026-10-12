@@ -4,8 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** preview = anteprima di provenienza (null = nota libera); page = pagina (0-based) oppure -1. */
-data class Note(val id: Long, val text: String, val preview: Preview?, val page: Int)
+/** preview = anteprima di provenienza (null = nota libera); page = pagina (0-based) oppure -1; tags = categorie (mesi o custom). */
+data class Note(val id: Long, val text: String, val preview: Preview?, val page: Int, val tags: List<String> = emptyList())
 
 /** Note salvate in SharedPreferences come JSON (la più recente per prima). */
 class NotesRepo(ctx: Context) {
@@ -19,7 +19,8 @@ class NotesRepo(ctx: Context) {
                 id = o.getLong("i"),
                 text = o.getString("x"),
                 preview = if (o.has("u")) Preview(Source.valueOf(o.getString("s")), o.getString("t"), o.getString("u")) else null,
-                page = o.optInt("p", -1)
+                page = o.optInt("p", -1),
+                tags = o.optJSONArray("g")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             )
         }
     }.getOrDefault(emptyList())
@@ -27,7 +28,7 @@ class NotesRepo(ctx: Context) {
     fun save(list: List<Note>) {
         val arr = JSONArray()
         list.forEach { n ->
-            val o = JSONObject().put("i", n.id).put("x", n.text).put("p", n.page)
+            val o = JSONObject().put("i", n.id).put("x", n.text).put("p", n.page).put("g", JSONArray(n.tags))
             n.preview?.let { o.put("s", it.source.name).put("t", it.title).put("u", it.url) }
             arr.put(o)
         }

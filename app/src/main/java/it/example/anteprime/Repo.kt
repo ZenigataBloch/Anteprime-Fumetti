@@ -26,8 +26,9 @@ class Repo(ctx: Context) {
         Scraper.client.newCall(Scraper.request(p.url)).execute().use { r ->
             if (!r.isSuccessful) error("HTTP ${r.code}")
             val tmp = File(dir, "${p.id}.tmp")
-            r.body!!.byteStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
-            val magic = tmp.inputStream().use { it.readNBytes(4).toString(Charsets.US_ASCII) }
+            r.body!!.byteStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o, 64 * 1024) } }
+            // (readNBytes esiste solo da Android 13: su minSdk 24 farebbe crashare il download)
+            val magic = tmp.inputStream().use { i -> ByteArray(4).also { i.read(it) }.toString(Charsets.US_ASCII) }
             if (magic != "%PDF") { tmp.delete(); error("il file scaricato non è un PDF") }
             tmp.renameTo(file(p))
         }
