@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import java.text.Normalizer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,10 +39,29 @@ object Exporter {
     const val TAG_EMOJI = "\uD83C\uDFF7\uFE0F" // 🏷️
     private const val NO_TAG = "Senza tag"
 
+    /**
+     * WhatsApp e Telegram: il grassetto con * e ** dipende dal programma che riceve il testo condiviso e spesso non scatta,
+     * quindi si usano i caratteri grassetto di Unicode (si vedono in grassetto ovunque, senza simboli).
+     * Discord legge il markdown normalmente.
+     */
     private fun ExportFormat.bold(s: String) = when (this) {
-        ExportFormat.WHATSAPP -> "*${s}*"
-        ExportFormat.TELEGRAM, ExportFormat.DISCORD -> "**${s}**"
+        ExportFormat.WHATSAPP, ExportFormat.TELEGRAM -> unicodeBold(s)
+        ExportFormat.DISCORD -> "**${s}**"
         ExportFormat.PLAIN -> s
+    }
+
+    /** Lettere e cifre -> Mathematical Sans-Serif Bold (U+1D5D4...). Gli accenti restano come segni combinanti sopra la lettera. */
+    private fun unicodeBold(s: String): String {
+        val sb = StringBuilder()
+        for (ch in Normalizer.normalize(s, Normalizer.Form.NFD)) {
+            when (ch) {
+                in 'A'..'Z' -> sb.appendCodePoint(0x1D5D4 + (ch - 'A'))
+                in 'a'..'z' -> sb.appendCodePoint(0x1D5EE + (ch - 'a'))
+                in '0'..'9' -> sb.appendCodePoint(0x1D7EC + (ch - '0'))
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
     }
 
     /**
@@ -217,7 +237,8 @@ fun ExportDialog(notes: List<Note>, onDismiss: () -> Unit) {
                 }
                 if (format != ExportFormat.PLAIN) {
                     Text(
-                        "I simboli di formattazione (* _) diventano grassetto e corsivo una volta inviato il messaggio.",
+                        if (format == ExportFormat.DISCORD) "I simboli di formattazione (* _) diventano grassetto e corsivo una volta inviato il messaggio."
+                        else "I titoli usano caratteri grassetto speciali: si vedono in grassetto ovunque, ma nella chat la ricerca potrebbe non trovarli.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp)
