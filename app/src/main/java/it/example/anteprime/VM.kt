@@ -82,17 +82,13 @@ class VM(private val app: Application) : AndroidViewModel(app) {
         saveNotes(notes.map { if (t in it.tags) it.copy(tags = it.tags - t) else it })
     }
 
-    /** Case editrici originali già usate nelle note: servono come scorciatoie quando ne scrivi una nuova. */
-    val allOriginals: List<String>
-        get() = notes.map { it.original.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-
-    fun addNote(text: String, p: Preview?, page: Int, tags: List<String> = emptyList(), original: String = "", release: String = "") {
+    fun addNote(text: String, p: Preview?, page: Int, tags: List<String> = emptyList(), release: String = "") {
         val id = maxOf(System.currentTimeMillis(), (notes.maxOfOrNull { it.id } ?: 0L) + 1)
-        saveNotes(listOf(Note(id, text, p, page, tags, original, release)) + notes)
+        saveNotes(listOf(Note(id, text, p, page, tags, release)) + notes)
     }
 
-    fun editNote(n: Note, text: String, tags: List<String>, original: String, release: String) =
-        saveNotes(notes.map { if (it.id == n.id) it.copy(text = text, tags = tags, original = original, release = release) else it })
+    fun editNote(n: Note, text: String, tags: List<String>, release: String) =
+        saveNotes(notes.map { if (it.id == n.id) it.copy(text = text, tags = tags, release = release) else it })
 
     fun deleteNote(n: Note) = saveNotes(notes.filter { it.id != n.id })
 

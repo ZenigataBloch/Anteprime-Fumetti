@@ -13,7 +13,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** App di destinazione: ognuna ha la sua sintassi per grassetto/corsivo e un limite di lunghezza per messaggio. */
 enum class ExportFormat(val label: String, val limit: Int) {
@@ -24,14 +29,14 @@ enum class ExportFormat(val label: String, val limit: Int) {
 }
 
 /**
- * Trasforma le note in testo da incollare in chat, raggruppato così:
- * editore italiano (Panini, Star...) > casa editrice originale (Marvel, DC...) > voci in ordine di data di uscita.
- * Le note libere (non nate da un PDF) finiscono in "Altre note". Se il testo supera il limite dell'app
- * viene diviso in più messaggi, ripetendo le intestazioni.
+ * Trasforma le note in testo da incollare in chat, raggruppato per tag (mesi in ordine cronologico, poi gli altri tag,
+ * poi le note senza tag). Una nota con più tag compare sotto ciascuno. Dentro a ogni tag le voci seguono la data di uscita
+ * (se indicata) e poi l'ordine dei PDF. Se il testo supera il limite dell'app viene diviso in più messaggi,
+ * ripetendo l'intestazione del tag.
  */
 object Exporter {
-    private const val NO_ORIGINAL = "Casa editrice non indicata"
-    private const val FREE_NOTES = "Altre note"
+    const val TAG_EMOJI = "\uD83C\uDFF7\uFE0F" // 🏷️
+    private const val NO_TAG = "Senza tag"
 
     private fun ExportFormat.bold(s: String) = when (this) {
         ExportFormat.WHATSAPP -> "*${s}*"
@@ -39,15 +44,20 @@ object Exporter {
         ExportFormat.PLAIN -> s
     }
 
-    private fun ExportFormat.italic(s: String) = when (this) {
-        ExportFormat.WHATSAPP -> "_${s}_"
-        ExportFormat.TELEGRAM -> "__${s}__"
-        ExportFormat.DISCORD -> "*${s}*"
-        ExportFormat.PLAIN -> s
+    /** Titolo del tag: maiuscolo e in grassetto; su Discord diventa un'intestazione (###), quindi anche più grande. */
+    private fun ExportFormat.heading(tag: String): String {
+        val t = "$TAG_EMOJI ${clean(tag.uppercase())}"
+        return when (this) {
+            ExportFormat.DISCORD -> "### $t"
+            else -> bold(t)
+        }
     }
 
     /** Nei testi liberi toglie i simboli che altrimenti rovinerebbero la formattazione. */
     private fun ExportFormat.clean(s: String) = if (this == ExportFormat.PLAIN) s else s.replace(Regex("[*_~`]"), "")
+
+    /** Vero per le righe che sono il titolo di un tag (serve all'anteprima per ingrandirle). */
+    fun isHeading(line: String) = line.trimStart('#', ' ', '*').startsWith(TAG_EMOJI)
 
     private val NUM_DATE = Regex("""(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})""")
     private val TEXT_DATE = Regex("""(?:(\d{1,2})\s+)?([A-Za-zàèéìòù]+)\s+(\d{4})""")
@@ -71,48 +81,39 @@ object Exporter {
         n.preview?.let { p ->
             sb.append("\n   📖 ").append(f.clean(p.title)).append(if (n.page >= 0) " (pag. ${n.page + 1})" else "")
         }
-        if (n.tags.isNotEmpty()) sb.append("\n   🏷 ").append(f.clean(Tags.sort(n.tags).joinToString(", ")))
         return sb.toString()
     }
 
-    private data class Item(val h1: String, val h2: String?, val entry: String)
+    private data class Item(val tag: String, val entry: String)
 
     /** Uno o più messaggi pronti da condividere (lista vuota se non ci sono note). */
     fun build(notes: List<Note>, f: ExportFormat): List<String> {
         if (notes.isEmpty()) return emptyList()
 
-        // ordine: editore (come nell'app), poi casa editrice originale (senza per ultima), poi data di uscita
-        val items = mutableListOf<Item>()
-        val sources: List<Source?> = Source.values().toList() + null
-        for (s in sources) {
-            val group = notes.filter { it.preview?.source == s }
-            if (group.isEmpty()) continue
-            val h1 = s?.label ?: FREE_NOTES
-            val byOriginal = group.groupBy { it.original.trim().lowercase() }
-            val orderedKeys = byOriginal.keys.sortedWith(compareBy<String>({ it.isEmpty() }, { it }))
-            for (k in orderedKeys) {
-                val list = byOriginal.getValue(k)
-                val name = list.first().original.trim().ifEmpty { NO_ORIGINAL }
-                val h2 = if (s == null) null else name // le note libere non hanno un editore: niente sotto-intestazione
-                list.sortedWith(compareBy<Note>({ releaseKey(it.release) ?: Int.MAX_VALUE }, { it.text.lowercase() }))
-                    .forEach { items += Item(h1, h2, entry(f, it)) }
-            }
-        }
+        val byTag = linkedMapOf<String, MutableList<Note>>()
+        for (n in notes) for (t in n.tags.ifEmpty { listOf(NO_TAG) }) byTag.getOrPut(t) { mutableListOf() }.add(n)
+        val order = Tags.sort(byTag.keys.filter { it != NO_TAG }) + listOfNotNull(NO_TAG.takeIf { it in byTag })
+
+        val noteOrder = compareBy<Note>(
+            { releaseKey(it.release) ?: Int.MAX_VALUE },
+            { it.preview?.source?.ordinal ?: Int.MAX_VALUE },
+            { it.preview?.title ?: "" },
+            { it.page },
+            { it.text.lowercase() }
+        )
+        val items = order.flatMap { tag -> byTag.getValue(tag).sortedWith(noteOrder).map { Item(tag, entry(f, it)) } }
 
         val limit = if (f.limit == Int.MAX_VALUE) Int.MAX_VALUE else f.limit - 90 // spazio per il titolo
         val parts = mutableListOf<String>()
         val cur = StringBuilder()
-        var lastH1: String? = null
-        var lastH2: String? = null
+        var lastTag: String? = null
 
         fun piece(b: Item): String {
             val sb = StringBuilder()
-            val newH1 = b.h1 != lastH1
-            if (newH1) {
+            if (b.tag != lastTag) {
                 if (cur.isNotEmpty()) sb.append("\n")
-                sb.append(f.bold(f.clean(b.h1.uppercase()))).append("\n")
+                sb.append(f.heading(b.tag)).append("\n")
             }
-            if (b.h2 != null && (newH1 || b.h2 != lastH2)) sb.append("▸ ").append(f.italic(f.clean(b.h2))).append("\n")
             sb.append(b.entry).append("\n")
             return sb.toString()
         }
@@ -121,12 +122,12 @@ object Exporter {
             var p = piece(item)
             if (cur.isNotEmpty() && cur.length + p.length > limit) {
                 parts += cur.toString().trimEnd()
-                cur.clear(); lastH1 = null; lastH2 = null
-                p = piece(item) // nel nuovo messaggio le intestazioni si ripetono
+                cur.clear(); lastTag = null
+                p = piece(item) // nel nuovo messaggio l'intestazione si ripete
             }
             if (p.length > limit) p = p.take(limit) // una voce da sola oltre il limite: si taglia
             cur.append(p)
-            lastH1 = item.h1; lastH2 = item.h2
+            lastTag = item.tag
         }
         if (cur.isNotEmpty()) parts += cur.toString().trimEnd()
 
@@ -167,6 +168,16 @@ fun ExportDialog(notes: List<Note>, onDismiss: () -> Unit) {
     var part by remember(format) { mutableIntStateOf(0) }
     val idx = part.coerceIn(0, (parts.size - 1).coerceAtLeast(0))
     val text = parts.getOrElse(idx) { "" }
+    // nell'anteprima i titoli dei tag sono in grassetto e un po' più grandi del resto
+    val styled = remember(text) {
+        buildAnnotatedString {
+            text.lines().forEachIndexed { i, line ->
+                if (i > 0) append("\n")
+                if (Exporter.isHeading(line)) withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp)) { append(line) }
+                else append(line)
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -196,7 +207,7 @@ fun ExportDialog(notes: List<Note>, onDismiss: () -> Unit) {
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
                 ) {
-                    Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
+                    Text(styled, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
                 }
                 if (format != ExportFormat.PLAIN) {
                     Text(

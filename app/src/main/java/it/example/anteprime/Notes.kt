@@ -4,10 +4,10 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** original = casa editrice originale (es. Marvel), release = data di uscita (testo libero, es. "12/11/2026"); entrambe facoltative.
+/** release = data di uscita (testo libera e facoltativa, es. "12/11/2026").
  *  preview = anteprima di provenienza (null = nota libera); page = pagina (0-based) oppure -1; tags = categorie (mesi o custom). */
 data class Note(val id: Long, val text: String, val preview: Preview?, val page: Int, val tags: List<String> = emptyList(),
-    val original: String = "", val release: String = "")
+    val release: String = "")
 
 /** Note salvate in SharedPreferences come JSON (la più recente per prima). */
 class NotesRepo(ctx: Context) {
@@ -23,7 +23,6 @@ class NotesRepo(ctx: Context) {
                 preview = if (o.has("u")) Preview(Source.valueOf(o.getString("s")), o.getString("t"), o.getString("u")) else null,
                 page = o.optInt("p", -1),
                 tags = o.optJSONArray("g")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
-                original = o.optString("o", ""),
                 release = o.optString("r", "")
             )
         }
@@ -33,7 +32,6 @@ class NotesRepo(ctx: Context) {
         val arr = JSONArray()
         list.forEach { n ->
             val o = JSONObject().put("i", n.id).put("x", n.text).put("p", n.page).put("g", JSONArray(n.tags))
-            if (n.original.isNotBlank()) o.put("o", n.original)
             if (n.release.isNotBlank()) o.put("r", n.release)
             n.preview?.let { o.put("s", it.source.name).put("t", it.title).put("u", it.url) }
             arr.put(o)

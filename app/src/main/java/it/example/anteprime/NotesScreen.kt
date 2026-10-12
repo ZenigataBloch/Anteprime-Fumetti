@@ -41,17 +41,14 @@ fun NoteDialog(
     title: String,
     initial: String,
     initialTags: List<String> = emptyList(),
-    initialOriginal: String = "",
     initialRelease: String = "",
-    knownOriginals: List<String> = emptyList(),
     allTags: List<String>,
     onCreateTag: (String) -> Unit,
     onDeleteTag: (String) -> Unit,
     onDismiss: () -> Unit,
-    onSave: (text: String, tags: List<String>, original: String, release: String) -> Unit
+    onSave: (text: String, tags: List<String>, release: String) -> Unit
 ) {
     var text by remember { mutableStateOf(initial) }
-    var original by remember { mutableStateOf(initialOriginal) }
     var release by remember { mutableStateOf(initialRelease) }
     var selected by remember { mutableStateOf(initialTags.toSet()) }
     var newTag by remember { mutableStateOf("") }
@@ -81,21 +78,7 @@ fun NoteDialog(
                     minLines = 3
                 )
                 Spacer(Modifier.height(8.dp))
-                // facoltativi: servono a raggruppare e ordinare le note quando le condividi
-                OutlinedTextField(
-                    value = original,
-                    onValueChange = { original = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Casa editrice originale (facoltativo)") },
-                    singleLine = true
-                )
-                val originalChips = knownOriginals.filter { !it.equals(original.trim(), ignoreCase = true) }.take(8)
-                if (originalChips.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        originalChips.forEach { o -> SuggestionChip(onClick = { original = o }, label = { Text(o) }) }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
+                // facoltativa: si vede nell'export e ne ordina le voci
                 OutlinedTextField(
                     value = release,
                     onValueChange = { release = it },
@@ -151,7 +134,7 @@ fun NoteDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(text.trim(), Tags.sort(selected.filter { it in allTags }), original.trim(), release.trim()) }, // ignora tag cancellati nel frattempo
+                onClick = { onSave(text.trim(), Tags.sort(selected.filter { it in allTags }), release.trim()) }, // ignora tag cancellati nel frattempo
                 enabled = text.isNotBlank()
             ) { Text("Salva") }
         },
@@ -317,21 +300,21 @@ fun NotesScreen(vm: VM, onBack: () -> Unit, onOpen: (Note) -> Unit) {
 
     if (adding) {
         NoteDialog(
-            "Nuova nota", "", knownOriginals = vm.allOriginals, allTags = tags,
+            "Nuova nota", "", allTags = tags,
             onCreateTag = { vm.createTag(it) }, onDeleteTag = { vm.deleteTag(it) },
             onDismiss = { adding = false }
-        ) { text, t, o, r ->
-            vm.addNote(text, null, -1, t, o, r); adding = false
+        ) { text, t, r ->
+            vm.addNote(text, null, -1, t, r); adding = false
         }
     }
     editing?.let { n ->
         NoteDialog(
             "Modifica nota", n.text, initialTags = n.tags,
-            initialOriginal = n.original, initialRelease = n.release, knownOriginals = vm.allOriginals, allTags = tags,
+            initialRelease = n.release, allTags = tags,
             onCreateTag = { vm.createTag(it) }, onDeleteTag = { vm.deleteTag(it) },
             onDismiss = { editing = null }
-        ) { text, t, o, r ->
-            vm.editNote(n, text, t, o, r); editing = null
+        ) { text, t, r ->
+            vm.editNote(n, text, t, r); editing = null
         }
     }
     exporting?.let { ExportDialog(it) { exporting = null } }
@@ -374,12 +357,8 @@ private fun NoteCard(
             }
             Column(Modifier.weight(1f)) {
                 Text(n.text, style = MaterialTheme.typography.bodyLarge)
-                val info = listOfNotNull(
-                    n.original.takeIf { it.isNotBlank() },
-                    n.release.takeIf { it.isNotBlank() }?.let { "uscita $it" }
-                ).joinToString(" · ")
-                if (info.isNotEmpty()) {
-                    Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (n.release.isNotBlank()) {
+                    Text("uscita ${n.release}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 n.preview?.let { p ->
                     Text(

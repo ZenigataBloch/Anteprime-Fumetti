@@ -95,8 +95,7 @@ fun App(vm: VM) {
             allTags = vm.allTags,
             onCreateTag = { vm.createTag(it) },
             onDeleteTag = { vm.deleteTag(it) },
-            knownOriginals = vm.allOriginals,
-            onAddNote = { text, page, tags, original, release -> vm.addNote(text, o.p, page, tags, original, release) },
+            onAddNote = { text, page, tags, release -> vm.addNote(text, o.p, page, tags, release) },
             onPageChanged = { vm.repo.setLastPage(o.p, it) }, // ricorda l'ultima pagina letta
             onBack = { open = null }
         )

@@ -82,8 +82,7 @@ fun PdfScreen(
     allTags: List<String> = emptyList(),
     onCreateTag: (String) -> Unit = {},
     onDeleteTag: (String) -> Unit = {},
-    knownOriginals: List<String> = emptyList(),
-    onAddNote: (text: String, page: Int, tags: List<String>, original: String, release: String) -> Unit,
+    onAddNote: (text: String, page: Int, tags: List<String>, release: String) -> Unit,
     onPageChanged: (page: Int) -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -370,9 +369,8 @@ fun PdfScreen(
             onCreateTag = onCreateTag,
             onDeleteTag = onDeleteTag,
             onDismiss = { draft = null; selectMode = false },
-            knownOriginals = knownOriginals,
-            onSave = { text, tags, original, release ->
-                onAddNote(text, d.page, tags, original, release)
+            onSave = { text, tags, release ->
+                onAddNote(text, d.page, tags, release)
                 draft = null
                 selectMode = false
                 Toast.makeText(ctx, "Nota salvata", Toast.LENGTH_SHORT).show()
