@@ -36,6 +36,7 @@ class Repo(ctx: Context) {
     }
 
     fun delete(p: Preview) {
+        PageText.cacheFile(file(p)).delete() // testo OCR per la ricerca
         file(p).delete()
         pagePrefs.edit().remove(p.id).apply() // cancellato e riscaricato = si riparte dalla prima pagina
         saveIndex(localIndex().filter { it.id != p.id })

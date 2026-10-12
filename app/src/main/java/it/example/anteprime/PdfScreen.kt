@@ -8,6 +8,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -20,11 +22,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -41,9 +43,13 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -63,14 +69,16 @@ private const val OCR_WIDTH = 2000 // larghezza a cui si rasterizza la pagina pe
 private val BAR_ZONE = 28.dp // fascia a destra riservata alla scrollbar quando è visibile
 private val THUMB_H = 56.dp
 
-private data class NoteDraft(val text: String, val page: Int)
+private data class NoteDraft(val text: String, val page: Int, val hint: String? = null)
 
 /**
  * Lettore PDF locale basato su android.graphics.pdf.PdfRenderer (nessuna libreria esterna per la visualizzazione).
- * Zoom: pinch (ancorato al punto sotto le dita), doppio tap, pulsanti + / -.
+ * Zoom: pinch (ancorato al punto sotto le dita) e doppio tap.
  * Scrollbar: compare mentre si scorre, si trascina per saltare di pagina (con indicatore "pag. X / N").
- * Note: pulsante matita = nota scritta a mano; evidenziatore = si trascina un rettangolo sul testo e
+ * Note: evidenziatore = si trascina un rettangolo sul testo e
  * il testo viene riconosciuto (OCR) e proposto come nota, da correggere e taggare prima di salvare (tag creati e cancellati da te).
+ * Lente: cerca parole nel PDF (OCR di tutte le pagine la prima volta, poi dalla cache su disco); un risultato si apre
+ * alla sua pagina oppure diventa la bozza di una nota (il formato riconosciuto è solo un suggerimento).
  * onPageChanged: chiamato a ogni cambio di pagina in cima (serve a ricordare dove si era arrivati).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,6 +138,15 @@ fun PdfScreen(
     var selRect by remember { mutableStateOf<Rect?>(null) }  // rettangolo in corso di selezione (px del viewport)
     var ocrBusy by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<NoteDraft?>(null) }
+
+    // --- ricerca nel testo (OCR di tutte le pagine, in cache su disco) ---
+    val total = ratios?.size ?: 0
+    var pages by remember { mutableStateOf<Map<Int, List<PageLine>>>(emptyMap()) } // pagina (0-based) -> righe lette
+    var idxRunning by remember { mutableStateOf(false) }
+    var idxJob by remember { mutableStateOf<Job?>(null) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) { pages = withContext(Dispatchers.IO) { PageText.load(file) } }
 
     // rirenderizza a risoluzione piena solo quando lo zoom si ferma
     LaunchedEffect(zoom) { delay(250); renderZoom = zoom }
@@ -241,12 +258,30 @@ fun PdfScreen(
         }
     }
 
+    /** Legge con l'OCR le pagine che mancano (in background, il lettore resta utilizzabile). */
+    fun startIndex() {
+        if (idxRunning || total == 0 || pages.size >= total) return
+        idxRunning = true
+        idxJob = scope.launch {
+            try {
+                PageText.build(file, pages) { i, lines -> pages = pages + (i to lines) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Toast.makeText(ctx, "Lettura del PDF non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                idxRunning = false
+            }
+        }
+    }
+    LaunchedEffect(searchOpen, total) { if (searchOpen) startIndex() }
+
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(title, maxLines = 1) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
             actions = {
-                IconButton(onClick = { draft = NoteDraft("", listState.firstVisibleItemIndex) }) { Icon(Icons.Default.Edit, "Nuova nota") }
+                IconButton(onClick = { searchOpen = true }) { Icon(Icons.Default.Search, "Cerca nel PDF") }
                 IconToggleButton(checked = selectMode, onCheckedChange = { selectMode = it; selRect = null }) {
                     Icon(
                         HighlighterIcon,
@@ -254,8 +289,6 @@ fun PdfScreen(
                         tint = if (selectMode) MaterialTheme.colorScheme.primary else LocalContentColor.current
                     )
                 }
-                IconButton(onClick = { applyZoom(zoom - 0.5f, viewW / 2, viewH / 2, viewW / 2, viewH / 2) }) { Icon(Icons.Default.Remove, "Riduci") }
-                IconButton(onClick = { applyZoom(zoom + 0.5f, viewW / 2, viewH / 2, viewW / 2, viewH / 2) }) { Icon(Icons.Default.Add, "Ingrandisci") }
             }
         )
     }) { pad ->
@@ -353,6 +386,12 @@ fun PdfScreen(
                     }
                 }
                 if (ocrBusy) CircularProgressIndicator(Modifier.align(Alignment.Center))
+                if (idxRunning && total > 0) {
+                    LinearProgressIndicator(
+                        progress = { (pages.size / total.toFloat()).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                    )
+                }
 
                 // scrollbar (sopra a tutto il resto)
                 val rr = ratios
@@ -363,7 +402,7 @@ fun PdfScreen(
 
     draft?.let { d ->
         NoteDialog(
-            title = "Nota · pag. ${d.page + 1}",
+            title = "Nota · pag. ${d.page + 1}" + (d.hint?.let { " · $it" } ?: ""),
             initial = d.text,
             allTags = allTags,
             onCreateTag = onCreateTag,
@@ -376,6 +415,107 @@ fun PdfScreen(
                 Toast.makeText(ctx, "Nota salvata", Toast.LENGTH_SHORT).show()
             }
         )
+    }
+
+    if (searchOpen) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val hits = remember(pages, query) { KeywordSearch.search(pages, KeywordSearch.keywords(query)) }
+        ModalBottomSheet(onDismissRequest = { searchOpen = false }, sheetState = sheetState) {
+            SearchPanel(
+                query = query,
+                onQuery = { query = it },
+                hits = hits,
+                done = pages.size,
+                total = total,
+                running = idxRunning,
+                onStop = { idxJob?.cancel() },
+                onResume = { startIndex() },
+                onOpen = { h ->
+                    searchOpen = false
+                    scope.launch { listState.scrollToItem(h.page) }
+                },
+                onNote = { h ->
+                    searchOpen = false
+                    draft = NoteDraft(h.text, h.page, h.format?.display())
+                }
+            )
+        }
+    }
+}
+
+/** Contenuto del pannello di ricerca: campo di testo, avanzamento della lettura OCR e lista dei risultati. */
+@Composable
+private fun SearchPanel(
+    query: String,
+    onQuery: (String) -> Unit,
+    hits: List<Hit>,
+    done: Int,
+    total: Int,
+    running: Boolean,
+    onStop: () -> Unit,
+    onResume: () -> Unit,
+    onOpen: (Hit) -> Unit,
+    onNote: (Hit) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Cerca nel PDF (es. X-Men, Absolute Batman)") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+        )
+        val partial = total > 0 && done < total
+        if (partial) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (running) "Lettura del PDF: $done / $total pagine (solo la prima volta)" else "PDF letto in parte: $done / $total pagine",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (running) {
+                LinearProgressIndicator(
+                    progress = { (done / total.toFloat()).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+            }
+            TextButton(onClick = if (running) onStop else onResume) {
+                Text(if (running) "Interrompi" else "Riprendi la lettura")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        when {
+            query.isBlank() -> Text(
+                "Scrivi una o più parole, separate da virgola.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            hits.isEmpty() -> Text(
+                if (partial) "Nessun risultato finora" else "Nessun risultato",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            else -> LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(hits.size) { i ->
+                    val h = hits[i]
+                    ListItem(
+                        modifier = Modifier.clickable { onOpen(h) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        headlineContent = { Text(h.text, maxLines = 3, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("pag. ${h.page + 1} · ${h.keyword}")
+                                h.format?.let { f -> AssistChip(onClick = {}, label = { Text(f.display()) }) }
+                            }
+                        },
+                        trailingContent = {
+                            IconButton(onClick = { onNote(h) }) { Icon(Icons.Default.Edit, "Crea nota") }
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
