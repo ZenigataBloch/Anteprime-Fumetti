@@ -56,16 +56,43 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     private fun saveNotes(list: List<Note>) { notes = list; notesRepo.save(list) }
 
-    /** Tutti i tag in uso, mesi in ordine cronologico e poi gli altri. */
-    val allTags: List<String> get() = Tags.sort(notes.flatMap { it.tags })
+    // catalogo dei tag: li crei e li cancelli tu, anche senza note. All'avvio si unisce ai tag già usati dalle note.
+    private val tagPrefs = app.getSharedPreferences("tags", Context.MODE_PRIVATE)
+    var tagList by mutableStateOf(Tags.sort(tagPrefs.getStringSet("all", emptySet())!! + notes.flatMap { it.tags }))
+        private set
+    val allTags: List<String> get() = tagList
 
-    fun addNote(text: String, p: Preview?, page: Int, tags: List<String> = emptyList()) {
-        val id = maxOf(System.currentTimeMillis(), (notes.maxOfOrNull { it.id } ?: 0L) + 1)
-        saveNotes(listOf(Note(id, text, p, page, tags)) + notes)
+    private fun saveTags(list: List<String>) {
+        tagList = Tags.sort(list)
+        tagPrefs.edit().putStringSet("all", tagList.toSet()).apply()
     }
 
-    fun editNote(n: Note, text: String, tags: List<String>) =
-        saveNotes(notes.map { if (it.id == n.id) it.copy(text = text, tags = tags) else it })
+    /** Crea un tag (se esiste già, ignorando maiuscole/minuscole, non fa nulla) e restituisce il nome canonico. */
+    fun createTag(raw: String): String? {
+        val t = Tags.normalize(raw)
+        if (t.isBlank()) return null
+        tagList.firstOrNull { it.equals(t, ignoreCase = true) }?.let { return it }
+        saveTags(tagList + t)
+        return t
+    }
+
+    /** Elimina il tag dal catalogo e lo toglie da tutte le note. */
+    fun deleteTag(t: String) {
+        saveTags(tagList - t)
+        saveNotes(notes.map { if (t in it.tags) it.copy(tags = it.tags - t) else it })
+    }
+
+    /** Case editrici originali già usate nelle note: servono come scorciatoie quando ne scrivi una nuova. */
+    val allOriginals: List<String>
+        get() = notes.map { it.original.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
+
+    fun addNote(text: String, p: Preview?, page: Int, tags: List<String> = emptyList(), original: String = "", release: String = "") {
+        val id = maxOf(System.currentTimeMillis(), (notes.maxOfOrNull { it.id } ?: 0L) + 1)
+        saveNotes(listOf(Note(id, text, p, page, tags, original, release)) + notes)
+    }
+
+    fun editNote(n: Note, text: String, tags: List<String>, original: String, release: String) =
+        saveNotes(notes.map { if (it.id == n.id) it.copy(text = text, tags = tags, original = original, release = release) else it })
 
     fun deleteNote(n: Note) = saveNotes(notes.filter { it.id != n.id })
 

@@ -70,7 +70,7 @@ private data class NoteDraft(val text: String, val page: Int)
  * Zoom: pinch (ancorato al punto sotto le dita), doppio tap, pulsanti + / -.
  * Scrollbar: compare mentre si scorre, si trascina per saltare di pagina (con indicatore "pag. X / N").
  * Note: pulsante matita = nota scritta a mano; evidenziatore = si trascina un rettangolo sul testo e
- * il testo viene riconosciuto (OCR) e proposto come nota, da correggere e taggare prima di salvare.
+ * il testo viene riconosciuto (OCR) e proposto come nota, da correggere e taggare prima di salvare (tag creati e cancellati da te).
  * onPageChanged: chiamato a ogni cambio di pagina in cima (serve a ricordare dove si era arrivati).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +80,10 @@ fun PdfScreen(
     title: String,
     startPage: Int = 0,
     allTags: List<String> = emptyList(),
-    onAddNote: (text: String, page: Int, tags: List<String>) -> Unit,
+    onCreateTag: (String) -> Unit = {},
+    onDeleteTag: (String) -> Unit = {},
+    knownOriginals: List<String> = emptyList(),
+    onAddNote: (text: String, page: Int, tags: List<String>, original: String, release: String) -> Unit,
     onPageChanged: (page: Int) -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -363,12 +366,13 @@ fun PdfScreen(
         NoteDialog(
             title = "Nota · pag. ${d.page + 1}",
             initial = d.text,
-            // il mese citato nel titolo del PDF o nel testo viene preselezionato (si può togliere)
-            initialTags = Tags.fromText("$title ${d.text}"),
-            knownTags = allTags,
+            allTags = allTags,
+            onCreateTag = onCreateTag,
+            onDeleteTag = onDeleteTag,
             onDismiss = { draft = null; selectMode = false },
-            onSave = { text, tags ->
-                onAddNote(text, d.page, tags)
+            knownOriginals = knownOriginals,
+            onSave = { text, tags, original, release ->
+                onAddNote(text, d.page, tags, original, release)
                 draft = null
                 selectMode = false
                 Toast.makeText(ctx, "Nota salvata", Toast.LENGTH_SHORT).show()
