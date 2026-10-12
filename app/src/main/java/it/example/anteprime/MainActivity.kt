@@ -233,6 +233,11 @@ private fun SettingsMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
 private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
     val local = p.id in vm.localIds
     val busy = p.id in vm.busy
+    // lettura del testo per la ricerca (parte da sola a fine download)
+    val ix = Indexer.states[p.id]
+    val readNote = if (p.id in Indexer.running) {
+        ix?.takeIf { it.total > 0 }?.let { " · lettura testo ${it.pages.size}/${it.total}" } ?: " · lettura testo…"
+    } else ""
     // Manicomix (catalogo da centinaia di pagine): si scarica soltanto, senza aprirlo da solo a fine download
     val download = { if (!busy) vm.fetch(p) { if (p.source != Source.MANICOMIX) onOpen(p) } }
     Card(
@@ -247,7 +252,7 @@ private fun PreviewCard(p: Preview, vm: VM, onOpen: (Preview) -> Unit) {
                 Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     p.source.label + when {
-                        local -> " · scaricato"
+                        local -> " · scaricato$readNote"
                         busy -> vm.progress[p.id]?.let { " · scaricamento ${it.first}/${it.second}" } ?: " · scaricamento…"
                         else -> ""
                     },

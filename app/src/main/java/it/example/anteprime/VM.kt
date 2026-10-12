@@ -153,14 +153,19 @@ class VM(private val app: Application) : AndroidViewModel(app) {
                     repo.download(p) { done, total -> viewModelScope.launch { progress = progress + (p.id to (done to total)) } }
                 }
             }
-                .onSuccess { localIds = repo.localIds(); onReady() }
+                .onSuccess {
+                    localIds = repo.localIds()
+                    // a fine download parte da sola la lettura del testo per la ricerca (in background, una alla volta)
+                    Indexer.start(repo.file(p)) { m -> errors = errors + "Lettura testo ${p.title}: $m" }
+                    onReady()
+                }
                 .onFailure { errors = errors + "Download ${p.title}: ${it.message}" }
             progress = progress - p.id
             busy -= p.id
         }
     }
 
-    fun remove(p: Preview) { repo.delete(p); localIds = repo.localIds() }
+    fun remove(p: Preview) { Indexer.forget(p.id); repo.delete(p); localIds = repo.localIds() }
 
     fun checkUpdate(manual: Boolean) {
         viewModelScope.launch {

@@ -143,12 +143,13 @@ fun PdfScreen(
 
     // --- ricerca nel testo (OCR di tutte le pagine, in cache su disco) ---
     val total = ratios?.size ?: 0
-    var pages by remember { mutableStateOf<Map<Int, List<PageLine>>>(emptyMap()) } // pagina (0-based) -> righe lette
-    var idxRunning by remember { mutableStateOf(false) }
-    var idxJob by remember { mutableStateOf<Job?>(null) }
+    // la lettura OCR sta in Indexer: parte da sola a fine download e prosegue anche a lettore chiuso
+    val pdfId = remember(file) { file.nameWithoutExtension }
+    val pages: Map<Int, List<PageLine>> = Indexer.states[pdfId]?.pages ?: emptyMap() // pagina (0-based) -> righe lette
+    val idxRunning = pdfId in Indexer.running
     var searchOpen by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(Unit) { pages = withContext(Dispatchers.IO) { PageText.load(file) } }
+    LaunchedEffect(file) { Indexer.ensureLoaded(file) }
 
     // rirenderizza a risoluzione piena solo quando lo zoom si ferma
     LaunchedEffect(zoom) { delay(250); renderZoom = zoom }
@@ -260,20 +261,11 @@ fun PdfScreen(
         }
     }
 
-    /** Legge con l'OCR le pagine che mancano (in background, il lettore resta utilizzabile). */
+    /** Legge con l'OCR le pagine che mancano (in background, il lettore resta utilizzabile). Se è già in corso non fa nulla. */
     fun startIndex() {
         if (idxRunning || total == 0 || pages.size >= total) return
-        idxRunning = true
-        idxJob = scope.launch {
-            try {
-                PageText.build(file, pages) { i, lines -> pages = pages + (i to lines) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Toast.makeText(ctx, "Lettura del PDF non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
-            } finally {
-                idxRunning = false
-            }
+        Indexer.start(file, priority = true) {
+            Toast.makeText(ctx, "Lettura del PDF non riuscita: $it", Toast.LENGTH_LONG).show()
         }
     }
     LaunchedEffect(searchOpen, total) { if (searchOpen) startIndex() }
@@ -431,7 +423,7 @@ fun PdfScreen(
                 done = pages.size,
                 total = total,
                 running = idxRunning,
-                onStop = { idxJob?.cancel() },
+                onStop = { Indexer.stop(pdfId) },
                 onResume = { startIndex() },
                 onOpen = { h ->
                     searchOpen = false

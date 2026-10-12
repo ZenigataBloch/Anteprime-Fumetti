@@ -86,13 +86,20 @@ object PageText {
 
     /**
      * Legge con l'OCR le pagine che mancano in [done], una alla volta. [onPage] viene chiamata (sul thread del chiamante)
-     * a ogni pagina completata. Annullabile: alla cancellazione salva quanto fatto finora.
+     * a ogni pagina completata; [onTotal] riceve il numero di pagine del PDF appena aperto.
+     * Annullabile: alla cancellazione salva quanto fatto finora.
      */
-    suspend fun build(pdf: File, done: Map<Int, List<PageLine>>, onPage: (Int, List<PageLine>) -> Unit) {
+    suspend fun build(
+        pdf: File,
+        done: Map<Int, List<PageLine>>,
+        onTotal: (Int) -> Unit = {},
+        onPage: (Int, List<PageLine>) -> Unit
+    ) {
         val acc = HashMap<Int, List<PageLine>>(done)
         val pfd = ParcelFileDescriptor.open(pdf, ParcelFileDescriptor.MODE_READ_ONLY)
         val renderer = PdfRenderer(pfd)
         try {
+            onTotal(renderer.pageCount)
             var sinceSave = 0
             for (i in 0 until renderer.pageCount) {
                 if (i in acc) continue
