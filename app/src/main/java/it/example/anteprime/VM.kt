@@ -50,6 +50,21 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var update by mutableStateOf<Update?>(null)
     var updating by mutableStateOf(false)
 
+    // note salvate (dal lettore PDF o scritte a mano), la più recente per prima
+    private val notesRepo = NotesRepo(app)
+    var notes by mutableStateOf(notesRepo.load())
+
+    private fun saveNotes(list: List<Note>) { notes = list; notesRepo.save(list) }
+
+    fun addNote(text: String, p: Preview?, page: Int) {
+        val id = maxOf(System.currentTimeMillis(), (notes.maxOfOrNull { it.id } ?: 0L) + 1)
+        saveNotes(listOf(Note(id, text, p, page)) + notes)
+    }
+
+    fun editNote(n: Note, text: String) = saveNotes(notes.map { if (it.id == n.id) it.copy(text = text) else it })
+
+    fun deleteNote(n: Note) = saveNotes(notes.filter { it.id != n.id })
+
     init {
         Scraper.cacheDir = app.filesDir // cache dell'archivio nerdpool
         Notifier.schedule(app, notifyEnabled)

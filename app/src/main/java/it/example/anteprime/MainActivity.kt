@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -67,11 +68,16 @@ private fun openWeb(ctx: Context, p: Preview) {
         .onFailure { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
+/** PDF aperto nel lettore, con la pagina da cui partire (0-based). */
+private data class Opened(val p: Preview, val page: Int = 0)
+
 @Composable
 fun App(vm: VM) {
     val ctx = LocalContext.current
-    var open by remember { mutableStateOf<Preview?>(null) }
-    BackHandler(open != null) { open = null }
+    var open by remember { mutableStateOf<Opened?>(null) }
+    var showNotes by rememberSaveable { mutableStateOf(false) }
+    // Indietro: prima chiude il PDF (si torna a note o lista), poi la schermata note
+    BackHandler(open != null || showNotes) { if (open != null) open = null else showNotes = false }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(vm.notifyEnabled) {
@@ -80,9 +86,25 @@ fun App(vm: VM) {
         ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    val p = open
-    if (p == null) ListScreen(vm) { if (it.isPdf) open = it else openWeb(ctx, it) }
-    else PdfScreen(vm.repo.file(p), p.title) { open = null }
+    val o = open
+    when {
+        o != null -> PdfScreen(
+            file = vm.repo.file(o.p),
+            title = o.p.title,
+            startPage = o.page,
+            onAddNote = { text, page -> vm.addNote(text, o.p, page) },
+            onBack = { open = null }
+        )
+        showNotes -> NotesScreen(vm, onBack = { showNotes = false }) { n ->
+            // tocca una nota: apre il PDF alla sua pagina (lo scarica se non è già sul telefono)
+            val p = n.preview
+            if (p != null) {
+                val page = n.page.coerceAtLeast(0)
+                if (p.id in vm.localIds) open = Opened(p, page) else vm.fetch(p) { open = Opened(p, page) }
+            }
+        }
+        else -> ListScreen(vm, onNotes = { showNotes = true }) { if (it.isPdf) open = Opened(it) else openWeb(ctx, it) }
+    }
 
     vm.update?.let { u ->
         AlertDialog(
@@ -101,7 +123,7 @@ fun App(vm: VM) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
+fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
     var source by rememberSaveable { mutableStateOf<String?>(null) }
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -120,6 +142,9 @@ fun ListScreen(vm: VM, onOpen: (Preview) -> Unit) {
                             contentDescription = "Solo scaricati",
                             tint = if (onlyLocal) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
+                    }
+                    IconButton(onClick = onNotes) {
+                        Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Note")
                     }
                     IconButton(onClick = { vm.scan() }, enabled = !vm.loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "Aggiorna")
