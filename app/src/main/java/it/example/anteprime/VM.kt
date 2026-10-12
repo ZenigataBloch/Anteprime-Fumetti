@@ -9,8 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -25,7 +24,24 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     fun setDynamic(b: Boolean) { dynamicColor = b; prefs.edit().putBoolean("dynamic", b).apply() }
     fun setNotify(b: Boolean) { notifyEnabled = b; prefs.edit().putBoolean("notify", b).apply(); Notifier.schedule(app, b) }
 
-    var items by mutableStateOf(repo.localIndex())
+    // Ultima lista nota di ogni fonte: all'avvio arriva dal disco (la lista appare subito),
+    // poi viene sostituita da quella scaricata. Si tocca solo dal thread principale.
+    private val bySource = linkedMapOf<Source, List<Preview>>().apply {
+        Source.values().forEach { put(it, PreviewCache.load(app.filesDir, it)) }
+    }
+
+    private fun merged(): List<Preview> {
+        val all = bySource.values.flatten()
+        return all + repo.localIndex().filter { l -> all.none { it.id == l.id } }
+    }
+
+    private val fonti = listOf<Pair<Source, () -> List<Preview>>>(
+        Source.PANINI to Scraper::panini,
+        Source.STAR to Scraper::star,
+        Source.MANICOMIX to Scraper::manicomix
+    )
+
+    var items by mutableStateOf(merged())
     var localIds by mutableStateOf(repo.localIds())
     var busy by mutableStateOf(setOf<String>())
     var loading by mutableStateOf(false)
@@ -35,6 +51,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var updating by mutableStateOf(false)
 
     init {
+        Scraper.cacheDir = app.filesDir // cache dell'archivio nerdpool
         Notifier.schedule(app, notifyEnabled)
         scan()
         checkUpdate(false)
@@ -42,25 +59,42 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     private fun toast(msg: String) = Toast.makeText(app, msg, Toast.LENGTH_LONG).show()
 
+    private fun publish() {
+        items = merged()
+        localIds = repo.localIds()
+    }
+
     fun scan() {
         if (loading) return
         viewModelScope.launch {
             loading = true
+            errors = emptyList()
             val errs = mutableListOf<String>()
-            val all = mutableListOf<Preview>()
-            val results = withContext(Dispatchers.IO) {
-                listOf("Panini" to Scraper::panini, "Star Comics" to Scraper::star, "Manicomix" to Scraper::manicomix)
-                    .map { (n, f) -> async { n to runCatching { f() } } }.awaitAll()
-            }
-            results.forEach { (n, r) ->
-                r.onSuccess { if (it.isEmpty()) errs += "$n: nessun elemento trovato (struttura del sito cambiata?)"; all += it }
-                    .onFailure { errs += "$n: ${it.message ?: it.javaClass.simpleName}" }
-            }
-            val local = repo.localIndex()
-            items = all + local.filter { l -> all.none { it.id == l.id } }
-            localIds = repo.localIds()
-            errors = errs
-            repo.markSeen(all.map { it.id }) // quello che vedi in lista non viene notificato di nuovo
+            val fresh = mutableListOf<Preview>()
+            // le tre fonti partono insieme e ognuna compare in lista appena è pronta
+            fonti.map { (s, f) ->
+                launch {
+                    val r = withContext(Dispatchers.IO) {
+                        runCatching { f() }.also { res ->
+                            res.getOrNull()?.takeIf { it.isNotEmpty() }?.let { PreviewCache.save(app.filesDir, s, it) }
+                        }
+                    }
+                    // da qui si è di nuovo sul thread principale
+                    r.onSuccess { list ->
+                        if (list.isEmpty()) {
+                            errs += "${s.label}: nessun elemento trovato (struttura del sito cambiata?)"
+                        } else {
+                            bySource[s] = list
+                            fresh += list
+                        }
+                    }.onFailure {
+                        errs += "${s.label}: ${it.message ?: it.javaClass.simpleName}" // in lista resta la versione salvata
+                    }
+                    errors = errs.toList()
+                    publish()
+                }
+            }.joinAll()
+            repo.markSeen(fresh.map { it.id }) // quello che vedi in lista non viene notificato di nuovo
             loading = false
         }
     }
