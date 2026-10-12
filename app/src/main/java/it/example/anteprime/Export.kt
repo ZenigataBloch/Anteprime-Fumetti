@@ -44,12 +44,18 @@ object Exporter {
         ExportFormat.PLAIN -> s
     }
 
+    /**
+     * Emoji + testo in grassetto. L'emoji sta FUORI dai simboli di formattazione: WhatsApp (e in parte Telegram)
+     * non applicano il grassetto se l'asterisco è attaccato a un'emoji ("*📚 Titolo*" resta con gli asterischi visibili).
+     */
+    private fun ExportFormat.emojiBold(emoji: String, s: String) = "$emoji ${bold(s)}"
+
     /** Titolo del tag: maiuscolo e in grassetto; su Discord diventa un'intestazione (###), quindi anche più grande. */
     private fun ExportFormat.heading(tag: String): String {
-        val t = "$TAG_EMOJI ${clean(tag.uppercase())}"
+        val t = clean(tag.uppercase())
         return when (this) {
-            ExportFormat.DISCORD -> "### $t"
-            else -> bold(t)
+            ExportFormat.DISCORD -> "### $TAG_EMOJI $t"
+            else -> emojiBold(TAG_EMOJI, t)
         }
     }
 
@@ -133,9 +139,9 @@ object Exporter {
 
         val n = notes.size
         return parts.mapIndexed { i, body ->
-            val title = if (parts.size > 1) "📚 Anteprime Fumetti (${i + 1}/${parts.size})"
-            else "📚 Anteprime Fumetti · $n ${if (n == 1) "nota" else "note"}"
-            f.bold(title) + "\n\n" + body
+            val title = if (parts.size > 1) "Anteprime Fumetti (${i + 1}/${parts.size})"
+            else "Anteprime Fumetti · $n ${if (n == 1) "nota" else "note"}"
+            f.emojiBold("📚", title) + "\n\n" + body
         }
     }
 }
