@@ -64,6 +64,32 @@ object Exporter {
         return sb.toString()
     }
 
+    /** Lettere -> Mathematical Sans-Serif Italic (U+1D608...). Le cifre non hanno una versione corsiva e restano normali. */
+    private fun unicodeItalic(s: String): String {
+        val sb = StringBuilder()
+        for (ch in Normalizer.normalize(s, Normalizer.Form.NFD)) {
+            when (ch) {
+                in 'A'..'Z' -> sb.appendCodePoint(0x1D608 + (ch - 'A'))
+                in 'a'..'z' -> sb.appendCodePoint(0x1D622 + (ch - 'a'))
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Riga secondaria sotto il nome dell'opera (📅 uscita, 📖 anteprima e pagina): deve distinguersi dal titolo.
+     * Discord: "-# " = testo piccolo e grigio. WhatsApp/Telegram: corsivo Unicode (la dimensione non si può cambiare).
+     */
+    private fun ExportFormat.sub(emoji: String, s: String): String {
+        val t = clean(s)
+        return when (this) {
+            ExportFormat.WHATSAPP, ExportFormat.TELEGRAM -> "   $emoji ${unicodeItalic(t)}"
+            ExportFormat.DISCORD -> "-# $emoji $t"
+            ExportFormat.PLAIN -> "   $emoji $t"
+        }
+    }
+
     /**
      * Emoji + testo in grassetto. L'emoji sta FUORI dai simboli di formattazione: WhatsApp (e in parte Telegram)
      * non applicano il grassetto se l'asterisco è attaccato a un'emoji ("*📚 Titolo*" resta con gli asterischi visibili).
@@ -85,6 +111,9 @@ object Exporter {
     /** Vero per le righe che sono il titolo di un tag (serve all'anteprima per ingrandirle). */
     fun isHeading(line: String) = line.trimStart('#', ' ', '*').startsWith(TAG_EMOJI)
 
+    /** Vero per le righe secondarie (📅 / 📖): nell'anteprima si rimpiccioliscono. */
+    fun isSub(line: String) = line.trimStart('-', '#', ' ').let { it.startsWith("📖") || it.startsWith("📅") }
+
     private val NUM_DATE = Regex("""(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})""")
     private val TEXT_DATE = Regex("""(?:(\d{1,2})\s+)?([A-Za-zàèéìòù]+)\s+(\d{4})""")
 
@@ -103,9 +132,9 @@ object Exporter {
 
     private fun entry(f: ExportFormat, n: Note): String {
         val sb = StringBuilder("• ").append(f.clean(n.text.replace(Regex("""\s*\n\s*"""), " ")))
-        if (n.release.isNotBlank()) sb.append("\n   📅 ").append(f.clean(n.release))
+        if (n.release.isNotBlank()) sb.append("\n").append(f.sub("📅", n.release))
         n.preview?.let { p ->
-            sb.append("\n   📖 ").append(f.clean(p.title)).append(if (n.page >= 0) " (pag. ${n.page + 1})" else "")
+            sb.append("\n").append(f.sub("📖", p.title + if (n.page >= 0) " (pag. ${n.page + 1})" else ""))
         }
         return sb.toString()
     }
@@ -194,12 +223,13 @@ fun ExportDialog(notes: List<Note>, onDismiss: () -> Unit) {
     var part by remember(format) { mutableIntStateOf(0) }
     val idx = part.coerceIn(0, (parts.size - 1).coerceAtLeast(0))
     val text = parts.getOrElse(idx) { "" }
-    // nell'anteprima i titoli dei tag sono in grassetto e un po' più grandi del resto
+    // nell'anteprima i titoli dei tag sono in grassetto e più grandi, le righe 📅/📖 più piccole
     val styled = remember(text) {
         buildAnnotatedString {
             text.lines().forEachIndexed { i, line ->
                 if (i > 0) append("\n")
                 if (Exporter.isHeading(line)) withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp)) { append(line) }
+                else if (Exporter.isSub(line)) withStyle(SpanStyle(fontSize = 10.sp)) { append(line) }
                 else append(line)
             }
         }

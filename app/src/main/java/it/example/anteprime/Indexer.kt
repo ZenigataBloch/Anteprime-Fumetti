@@ -32,6 +32,9 @@ object Indexer {
     private val gate = Semaphore(1)
     private val jobs = HashMap<String, Job>()
 
+    /** Esegue [block] nella stessa coda delle letture automatiche (una sola OCR alla volta in tutta l'app). Usato da FollowWorker. */
+    suspend fun <T> exclusive(block: suspend () -> T): T = gate.withPermit { block() }
+
     /** id del PDF -> testo letto finora. */
     var states by mutableStateOf(mapOf<String, TextState>())
         private set

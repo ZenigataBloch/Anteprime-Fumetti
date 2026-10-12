@@ -2,6 +2,7 @@ package it.example.anteprime
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,19 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var update by mutableStateOf<Update?>(null)
     var updating by mutableStateOf(false)
 
+    // opere seguite: ogni nuova anteprima viene scaricata e cercata in background (vedi Follows.kt)
+    var follows by mutableStateOf(Follows.list(app))
+    fun addFollow(raw: String) { Follows.add(app, raw); follows = Follows.list(app) }
+    fun removeFollow(name: String) { Follows.remove(app, name); follows = Follows.list(app) }
+
+    /** Tocco su una notifica di Follows: (id anteprima, pagina 0-based) da aprire appena la lista è pronta. */
+    var pendingOpen by mutableStateOf<Pair<String, Int>?>(null)
+    fun handleIntent(i: Intent?) {
+        val id = i?.getStringExtra(Follows.EXTRA_ID) ?: return
+        pendingOpen = id to i.getIntExtra(Follows.EXTRA_PAGE, 0)
+        i.removeExtra(Follows.EXTRA_ID)
+    }
+
     // note salvate (dal lettore PDF o scritte a mano), la più recente per prima
     private val notesRepo = NotesRepo(app)
     var notes by mutableStateOf(notesRepo.load())
@@ -95,6 +109,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     init {
         Scraper.cacheDir = app.filesDir // cache dell'archivio nerdpool
         Notifier.schedule(app, notifyEnabled)
+        Follows.schedule(app)
         scan()
         checkUpdate(false)
     }

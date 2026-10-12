@@ -1,6 +1,7 @@
 package it.example.anteprime
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -9,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -44,15 +46,22 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
+    private val vm: VM by viewModels() // la stessa istanza che userebbe viewModel() dentro Compose
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) vm.handleIntent(intent) // avvio dal tocco su una notifica "opere seguite"
         setContent {
-            val vm: VM = viewModel()
             AppTheme(vm.themeMode, vm.dynamicColor) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { App(vm) }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        vm.handleIntent(intent)
     }
 }
 
@@ -68,10 +77,19 @@ fun App(vm: VM) {
     BackHandler(open != null || showNotes) { if (open != null) open = null else showNotes = false }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    LaunchedEffect(vm.notifyEnabled) {
-        if (vm.notifyEnabled && Build.VERSION.SDK_INT >= 33 &&
+    val wantNotif = vm.notifyEnabled || vm.follows.isNotEmpty() // anche le opere seguite mandano notifiche
+    LaunchedEffect(wantNotif) {
+        if (wantNotif && Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // tocco su una notifica di "opere seguite": apre il PDF alla pagina trovata
+    LaunchedEffect(vm.pendingOpen, vm.items) {
+        val (id, page) = vm.pendingOpen ?: return@LaunchedEffect
+        val p = vm.items.firstOrNull { it.id == id } ?: return@LaunchedEffect
+        vm.pendingOpen = null
+        if (p.id in vm.localIds) open = Opened(p, page) else vm.fetch(p) { open = Opened(p, page) }
     }
 
     val o = open
@@ -123,9 +141,11 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
     var source by rememberSaveable { mutableStateOf<String?>(null) }
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var showFollows by remember { mutableStateOf(false) }
     val shown = remember(vm.items, vm.localIds, source, onlyLocal) {
         vm.items.filter { (source == null || it.source.name == source) && (!onlyLocal || it.id in vm.localIds) }
     }
+    if (showFollows) FollowsDialog(vm) { showFollows = false }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -147,7 +167,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                     }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Impostazioni") }
-                        SettingsMenu(vm, menu) { menu = false }
+                        SettingsMenu(vm, menu, onFollows = { showFollows = true }) { menu = false }
                     }
                 }
             )
@@ -199,7 +219,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
 }
 
 @Composable
-private fun SettingsMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
+private fun SettingsMenu(vm: VM, expanded: Boolean, onFollows: () -> Unit, onDismiss: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         ThemeMode.values().forEach { m ->
             DropdownMenuItem(
@@ -220,6 +240,10 @@ private fun SettingsMenu(vm: VM, expanded: Boolean, onDismiss: () -> Unit) {
             text = { Text("Notifiche nuove anteprime") },
             leadingIcon = { Checkbox(checked = vm.notifyEnabled, onCheckedChange = null) },
             onClick = { vm.setNotify(!vm.notifyEnabled) }
+        )
+        DropdownMenuItem(
+            text = { Text("Opere seguite (${vm.follows.size})") },
+            onClick = { onDismiss(); onFollows() }
         )
         DropdownMenuItem(
             text = { Text("Controlla aggiornamenti (v${BuildConfig.VERSION_NAME})") },

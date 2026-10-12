@@ -3,8 +3,11 @@ package it.example.anteprime
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -101,16 +104,30 @@ object PageText {
         try {
             onTotal(renderer.pageCount)
             var sinceSave = 0
-            for (i in 0 until renderer.pageCount) {
-                if (i in acc) continue
-                currentCoroutineContext().ensureActive()
-                val lines = withContext(Dispatchers.Default) { ocrPage(renderer, i) }
-                acc[i] = lines
-                onPage(i, lines)
-                if (++sinceSave >= SAVE_EVERY) {
-                    sinceSave = 0
-                    withContext(Dispatchers.IO) { save(pdf, acc) }
+            // pipeline: mentre ML Kit legge la pagina i-1, si prepara già l'immagine della pagina i
+            // (PdfRenderer apre una pagina per volta, quindi il render resta sequenziale; si sovrappone solo l'OCR)
+            coroutineScope {
+                var pending: Pair<Int, Deferred<List<PageLine>>>? = null
+                suspend fun flush() {
+                    val (pi, d) = pending ?: return
+                    pending = null
+                    val lines = d.await()
+                    acc[pi] = lines
+                    onPage(pi, lines)
+                    if (++sinceSave >= SAVE_EVERY) {
+                        sinceSave = 0
+                        withContext(Dispatchers.IO) { save(pdf, acc) }
+                    }
                 }
+                for (i in 0 until renderer.pageCount) {
+                    if (i in acc) continue
+                    currentCoroutineContext().ensureActive()
+                    val bmp = withContext(Dispatchers.Default) { render(renderer, i) }
+                    val ocr = async(Dispatchers.Default) { ocrBitmap(bmp) }
+                    flush()
+                    pending = i to ocr
+                }
+                flush()
             }
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
@@ -121,8 +138,8 @@ object PageText {
         }
     }
 
-    private suspend fun ocrPage(renderer: PdfRenderer, index: Int): List<PageLine> {
-        val bmp = renderer.openPage(index).use { p ->
+    private fun render(renderer: PdfRenderer, index: Int): Bitmap =
+        renderer.openPage(index).use { p ->
             val ratio = p.height.toFloat() / p.width
             val w = minOf(OCR_WIDTH, sqrt(MAX_PIXELS / ratio).toInt()).coerceAtLeast(1)
             val h = (w * ratio).toInt().coerceAtLeast(1)
@@ -131,6 +148,8 @@ object PageText {
                 p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             }
         }
+
+    private suspend fun ocrBitmap(bmp: Bitmap): List<PageLine> {
         // niente recycle in caso di annullamento: ML Kit potrebbe ancora leggere la bitmap
         val raw = TextOcr.readLines(bmp)
         val bw = bmp.width.toFloat()
