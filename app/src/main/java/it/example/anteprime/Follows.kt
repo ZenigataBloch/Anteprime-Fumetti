@@ -12,6 +12,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -228,7 +231,13 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Opere seguite") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(BookSearchIcon, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Opere seguite")
+            }
+        },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -256,7 +265,9 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
                 }
                 if (vm.follows.isNotEmpty()) {
                     TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
-                        Text(if (vm.testRunning) "Ferma la prova" else "Prova su tutte le anteprime")
+                        Icon(BookSearchIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (vm.testRunning) "Ferma la prova" else "Prova sulle ultime 3 anteprime")
                     }
                 }
                 if (vm.testRunning) {

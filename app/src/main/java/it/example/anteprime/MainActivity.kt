@@ -273,6 +273,7 @@ private fun SettingsMenu(vm: VM, expanded: Boolean, onFollows: () -> Unit, onDis
         )
         DropdownMenuItem(
             text = { Text("Opere seguite (${vm.follows.size})") },
+            leadingIcon = { Icon(BookSearchIcon, contentDescription = null) },
             onClick = { onDismiss(); onFollows() }
         )
         DropdownMenuItem(

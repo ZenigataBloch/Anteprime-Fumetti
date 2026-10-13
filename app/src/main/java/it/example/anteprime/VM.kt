@@ -69,7 +69,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     fun testFollows() {
         if (testRunning || follows.isEmpty()) return
         val names = follows
-        val list = items.toList()
+        val list = items.groupBy { it.source }.values.flatMap { it.take(3) } // le 3 più recenti di ogni fonte
         testJob = viewModelScope.launch {
             testRunning = true
             testDone = false
