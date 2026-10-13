@@ -30,7 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -78,8 +78,9 @@ fun App(vm: VM) {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf<Opened?>(null) }
     var showNotes by rememberSaveable { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     // Indietro: prima chiude il PDF (si torna a note o lista), poi la schermata note
-    BackHandler(open != null || showNotes) { if (open != null) open = null else showNotes = false }
+    BackHandler(open != null || showNotes || showSettings) { if (open != null) open = null else if (showNotes) showNotes = false else showSettings = false }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val wantNotif = vm.notifyEnabled || vm.follows.isNotEmpty() // anche le opere seguite mandano notifiche
@@ -119,7 +120,8 @@ fun App(vm: VM) {
                 if (p.id in vm.localIds) open = Opened(p, page) else vm.fetch(p) { open = Opened(p, page) }
             }
         }
-        else -> ListScreen(vm, onNotes = { showNotes = true }) {
+        showSettings -> SettingsScreen(vm, onBack = { showSettings = false })
+        else -> ListScreen(vm, onNotes = { showNotes = true }, onSettings = { showSettings = true }) {
             // dalla lista si riparte dall'ultima pagina letta; dalle note, dalla pagina della nota
             open = Opened(it, vm.repo.lastPage(it))
         }
@@ -142,9 +144,8 @@ fun App(vm: VM) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
+fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Preview) -> Unit) {
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     var showFollows by remember { mutableStateOf(false) }
     // pagina 0 = Tutti, poi una pagina per fonte; lo swipe cambia fonte
     val tabs: List<Source?> = remember { listOf<Source?>(null) + Source.values().toList() }
@@ -178,10 +179,8 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                     IconButton(onClick = { vm.scan() }, enabled = !vm.loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "Aggiorna")
                     }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Impostazioni") }
-                        SettingsMenu(vm, menu, onFollows = { showFollows = true }) { menu = false }
-                    }
+                    IconButton(onClick = { showFollows = true }) { Icon(BookSearchIcon, contentDescription = "Opere seguite") }
+                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Impostazioni") }
                 }
             )
         }
@@ -245,41 +244,6 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsMenu(vm: VM, expanded: Boolean, onFollows: () -> Unit, onDismiss: () -> Unit) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        ThemeMode.values().forEach { m ->
-            DropdownMenuItem(
-                text = { Text(m.label) },
-                leadingIcon = { RadioButton(selected = vm.themeMode == m, onClick = null) },
-                onClick = { vm.setTheme(m) }
-            )
-        }
-        if (Build.VERSION.SDK_INT >= 31) {
-            DropdownMenuItem(
-                text = { Text("Colori dinamici") },
-                leadingIcon = { Checkbox(checked = vm.dynamicColor, onCheckedChange = null) },
-                onClick = { vm.setDynamic(!vm.dynamicColor) }
-            )
-        }
-        HorizontalDivider()
-        DropdownMenuItem(
-            text = { Text("Notifiche nuove anteprime") },
-            leadingIcon = { Checkbox(checked = vm.notifyEnabled, onCheckedChange = null) },
-            onClick = { vm.setNotify(!vm.notifyEnabled) }
-        )
-        DropdownMenuItem(
-            text = { Text("Opere seguite (${vm.follows.size})") },
-            leadingIcon = { Icon(BookSearchIcon, contentDescription = null) },
-            onClick = { onDismiss(); onFollows() }
-        )
-        DropdownMenuItem(
-            text = { Text("Controlla aggiornamenti (v${BuildConfig.VERSION_NAME})") },
-            onClick = { onDismiss(); vm.checkUpdate(true) }
-        )
     }
 }
 
