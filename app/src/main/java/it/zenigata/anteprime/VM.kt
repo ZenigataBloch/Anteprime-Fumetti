@@ -134,7 +134,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var wishTab by mutableStateOf(0) // Wishlist: 0 = note, 1 = opere seguite
     /** Quante anteprime per fonte si controllano nella ricerca (regolabile dalle impostazioni). */
     var searchCount by mutableStateOf(prefs.getInt("searchCount", 3))
-    fun setSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
+    @JvmName("updateSearchCount") fun setSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
     fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false } }
     fun handleIntent(i: Intent?) {
         val id = i?.getStringExtra(Follows.EXTRA_ID) ?: return
