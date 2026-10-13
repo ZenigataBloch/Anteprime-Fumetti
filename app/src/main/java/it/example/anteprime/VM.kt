@@ -9,7 +9,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,6 +57,49 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var follows by mutableStateOf(Follows.list(app))
     fun addFollow(raw: String) { Follows.add(app, raw); follows = Follows.list(app) }
     fun removeFollow(name: String) { Follows.remove(app, name); follows = Follows.list(app) }
+
+    // prova delle opere seguite su tutte le anteprime in lista (scarica quelle mancanti, vedi FollowTest.kt)
+    var testRunning by mutableStateOf(false)
+    var testDone by mutableStateOf(false)
+    var testProgress by mutableStateOf(0 to 0)
+    var testCurrent by mutableStateOf("")
+    var testResults by mutableStateOf(listOf<Pair<Preview, List<Hit>>>())
+    private var testJob: Job? = null
+
+    fun testFollows() {
+        if (testRunning || follows.isEmpty()) return
+        val names = follows
+        val list = items.toList()
+        testJob = viewModelScope.launch {
+            testRunning = true
+            testDone = false
+            testResults = emptyList()
+            try {
+                for ((n, p) in list.withIndex()) {
+                    testProgress = n to list.size
+                    testCurrent = p.title
+                    if (p.id in busy) continue // già in download dall'utente
+                    busy += p.id
+                    try {
+                        val hits = FollowTest.check(repo, p, names)
+                        if (hits.isNotEmpty()) testResults = testResults + (p to hits)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        errors = errors + "Prova ${p.title}: ${e.message ?: e.javaClass.simpleName}"
+                    } finally {
+                        busy -= p.id
+                        localIds = repo.localIds()
+                    }
+                }
+                testDone = true
+            } finally {
+                testRunning = false
+            }
+        }
+    }
+
+    fun stopTest() { testJob?.cancel() }
 
     /** Tocco su una notifica di Follows: (id anteprima, pagina 0-based) da aprire appena la lista è pronta. */
     var pendingOpen by mutableStateOf<Pair<String, Int>?>(null)

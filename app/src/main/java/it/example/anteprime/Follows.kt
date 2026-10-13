@@ -8,17 +8,21 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -227,7 +231,7 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
         title = { Text("Opere seguite") },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Quando esce una nuova anteprima la scarico in background e ti avviso se contiene questi nomi.",
                     style = MaterialTheme.typography.bodySmall
@@ -248,6 +252,30 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
                         IconButton(onClick = { vm.removeFollow(n) }) {
                             Icon(Icons.Default.Close, contentDescription = "Rimuovi $n")
                         }
+                    }
+                }
+                if (vm.follows.isNotEmpty()) {
+                    TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
+                        Text(if (vm.testRunning) "Ferma la prova" else "Prova su tutte le anteprime")
+                    }
+                }
+                if (vm.testRunning) {
+                    Text(
+                        "${vm.testProgress.first + 1}/${vm.testProgress.second} · ${vm.testCurrent}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else if (vm.testDone && vm.testResults.isEmpty()) {
+                    Text("Nessuna corrispondenza.", style = MaterialTheme.typography.bodySmall)
+                }
+                vm.testResults.forEach { (p, hits) ->
+                    Text(p.title, style = MaterialTheme.typography.titleSmall)
+                    hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(8).forEach { h ->
+                        Text(
+                            "p. ${h.page + 1} · ${h.keyword}: ${h.text.take(60)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth().clickable { vm.pendingOpen = p.id to h.page; onDismiss() }
+                        )
                     }
                 }
             }
