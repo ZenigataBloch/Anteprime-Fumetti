@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -44,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
@@ -153,7 +155,15 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Anteprime Fumetti", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Text(
+                        "Anteprime Fumetti",
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp)
+                    )
+                },
                 actions = {
                     IconToggleButton(checked = onlyLocal, onCheckedChange = { onlyLocal = it }) {
                         Icon(
@@ -212,7 +222,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                     Text(it, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
                 }
             }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 val src = tabs[page]
                 val shown = remember(vm.items, vm.localIds, src, onlyLocal) {
                     vm.items.filter { (src == null || it.source == src) && (!onlyLocal || it.id in vm.localIds) }
@@ -222,7 +232,14 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onOpen: (Preview) -> Unit) {
                         Text("Nessun elemento", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(shown.firstOrNull()?.id) { listState.scrollToItem(0) }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         items(shown, key = { it.id }) { p -> PreviewCard(p, vm, onOpen) }
                     }
                 }

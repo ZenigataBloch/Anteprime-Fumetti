@@ -8,6 +8,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 object Scraper {
     // Client condiviso (usato anche per scaricare i PDF): timeout di lettura lunghi.
@@ -90,8 +91,29 @@ object Scraper {
         runCatching { paniniArchive(articles, out.keys.toSet()) }.getOrNull()
             ?.forEach { (n, p) -> out.putIfAbsent(n, p) }
 
+        withMonths(out)
         return (out.values + others)
             .sortedByDescending { NUM_RE.find(it.title)?.value?.toIntOrNull() ?: 0 }
+    }
+
+    private val TITLE_MONTH_RE = Regex(""" · ([A-Za-zà-ù]+) (\d{4})$""")
+
+    private fun monthIdx(title: String): Int? {
+        val m = TITLE_MONTH_RE.find(title) ?: return null
+        val mi = MESI.indexOf(m.groupValues[1].lowercase())
+        return if (mi < 0) null else m.groupValues[2].toInt() * 12 + mi
+    }
+
+    /** Ai numeri senza mese/anno lo ricava dal numero noto più vicino (una anteprima al mese). */
+    private fun withMonths(out: MutableMap<Int, Preview>) {
+        val known = out.mapNotNull { (n, p) -> monthIdx(p.title)?.let { n to it } }
+        if (known.isEmpty()) return
+        for ((n, p) in out.entries.toList()) {
+            if (monthIdx(p.title) != null) continue
+            val (kn, kk) = known.minByOrNull { abs(it.first - n) }!!
+            val k = kk + (n - kn)
+            out[n] = p.copy(title = p.title + " · " + MESI[k % 12].replaceFirstChar { it.uppercase() } + " " + k / 12)
+        }
     }
 
     // ---------- Archivio Panini da nerdpool.it ----------
