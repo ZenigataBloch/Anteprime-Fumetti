@@ -70,10 +70,9 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var testResults by mutableStateOf(listOf<Pair<Preview, List<Hit>>>())
     private var testJob: Job? = null
 
-    fun testFollows() {
-        if (testRunning || follows.isEmpty()) return
-        val names = follows
-        val list = items.groupBy { it.source }.values.flatMap { it.take(3) } // le 3 più recenti di ogni fonte
+    fun testFollows(names: List<String> = follows) {
+        if (testRunning || names.isEmpty()) return
+        val list = items.groupBy { it.source }.values.flatMap { it.take(searchCount) } // le più recenti di ogni fonte
         testJob = viewModelScope.launch {
             testRunning = true
             testDone = false
@@ -129,6 +128,14 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     /** Tocco su una notifica di Follows: (id anteprima, pagina 0-based) da aprire appena la lista è pronta. */
     var pendingOpen by mutableStateOf<Pair<String, Int>?>(null)
+    /** Aperto un PDF da un risultato della ricerca: tornando indietro si riapre l'elenco dei risultati. */
+    var returnToSearch by mutableStateOf(false)
+    var searchText by mutableStateOf("")
+    var wishTab by mutableStateOf(0) // Wishlist: 0 = note, 1 = opere seguite
+    /** Quante anteprime per fonte si controllano nella ricerca (regolabile dalle impostazioni). */
+    var searchCount by mutableStateOf(prefs.getInt("searchCount", 3))
+    fun setSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
+    fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false } }
     fun handleIntent(i: Intent?) {
         val id = i?.getStringExtra(Follows.EXTRA_ID) ?: return
         pendingOpen = id to i.getIntExtra(Follows.EXTRA_PAGE, 0)

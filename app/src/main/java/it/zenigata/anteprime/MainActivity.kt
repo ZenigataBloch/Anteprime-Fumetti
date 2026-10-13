@@ -30,8 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -146,12 +146,13 @@ fun App(vm: VM) {
 @Composable
 fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Preview) -> Unit) {
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
-    var showFollows by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(vm.returnToSearch) } // tornando dal PDF di un risultato si riapre l'elenco
+    LaunchedEffect(Unit) { vm.returnToSearch = false }
     // pagina 0 = Tutti, poi una pagina per fonte; lo swipe cambia fonte
     val tabs: List<Source?> = remember { listOf<Source?>(null) + Source.values().toList() }
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
-    if (showFollows) FollowsDialog(vm) { showFollows = false }
+    if (showSearch) WorkSearchDialog(vm) { showSearch = false }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -174,12 +175,9 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
                         )
                     }
                     IconButton(onClick = onNotes) {
-                        Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Note")
+                        Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Wishlist")
                     }
-                    IconButton(onClick = { vm.scan() }, enabled = !vm.loading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Aggiorna")
-                    }
-                    IconButton(onClick = { showFollows = true }) { Icon(BookSearchIcon, contentDescription = "Opere seguite") }
+                    IconButton(onClick = { vm.resetTest(); showSearch = true }) { Icon(Icons.Default.Search, contentDescription = "Cerca un'opera") }
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Impostazioni") }
                 }
             )
@@ -221,6 +219,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
                     Text(it, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
                 }
             }
+            PullToRefreshBox(isRefreshing = vm.loading, onRefresh = { vm.scan() }, modifier = Modifier.fillMaxSize()) {
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 val src = tabs[page]
                 val shown = remember(vm.items, vm.localIds, src, onlyLocal) {
@@ -242,6 +241,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
                         items(shown, key = { it.id }) { p -> PreviewCard(p, vm, onOpen) }
                     }
                 }
+            }
             }
         }
     }

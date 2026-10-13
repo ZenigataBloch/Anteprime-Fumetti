@@ -2,6 +2,7 @@ package it.zenigata.anteprime
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -234,7 +235,7 @@ fun NotesScreen(vm: VM, onBack: () -> Unit, onOpen: (Note) -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(if (selecting) "${selectedIds.size} selezionate" else "Note") },
+                title = { Text(if (selecting) "${selectedIds.size} selezionate" else "Wishlist") },
                 navigationIcon = {
                     if (selecting) IconButton(onClick = { selectedIds = emptySet() }) { Icon(Icons.Default.Close, "Annulla selezione") }
                     else IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") }
@@ -245,7 +246,7 @@ fun NotesScreen(vm: VM, onBack: () -> Unit, onOpen: (Note) -> Unit) {
                         IconButton(onClick = { exporting = vm.notes.filter { it.id in selectedIds } }) {
                             Icon(Icons.Default.Share, "Condividi selezionate")
                         }
-                    } else {
+                    } else if (vm.wishTab == 0) {
                         // senza selezione si condivide quello che si vede (tutte le note, o quelle del tag filtrato)
                         if (shown.isNotEmpty()) IconButton(onClick = { exporting = shown }) { Icon(Icons.Default.Share, "Condividi tutte") }
                         IconButton(onClick = { managingTags = true }) { Icon(Icons.AutoMirrored.Filled.Label, "Gestisci tag") }
@@ -256,6 +257,11 @@ fun NotesScreen(vm: VM, onBack: () -> Unit, onOpen: (Note) -> Unit) {
         }
     ) { pad ->
         Column(Modifier.padding(pad)) {
+            TabRow(selectedTabIndex = vm.wishTab) {
+                Tab(selected = vm.wishTab == 0, onClick = { vm.wishTab = 0 }, text = { Text("Note") })
+                Tab(selected = vm.wishTab == 1, onClick = { vm.resetTest(); vm.wishTab = 1 }, text = { Text("Opere seguite (${vm.follows.size})") })
+            }
+            if (vm.wishTab == 1) FollowsTab(vm) else Column(Modifier.weight(1f)) {
             if (vm.busy.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth()) // PDF in download
             if (tags.isNotEmpty()) {
                 Row(
@@ -298,6 +304,7 @@ fun NotesScreen(vm: VM, onBack: () -> Unit, onOpen: (Note) -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 
@@ -392,6 +399,64 @@ private fun NoteCard(
             if (!selecting) {
                 IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Modifica") }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Elimina") }
+            }
+        }
+    }
+}
+
+/** Scheda "Opere seguite" della Wishlist: aggiungi/rimuovi i nomi e prova la ricerca sulle ultime anteprime. */
+@Composable
+private fun FollowsTab(vm: VM) {
+    var text by remember { mutableStateOf("") }
+    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text(
+                "Quando esce una nuova anteprima la scarico in background e ti avviso se contiene questi nomi.",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it }, singleLine = true,
+                    label = { Text("Nome o serie") }, modifier = Modifier.weight(1f)
+                )
+                IconButton(enabled = text.isNotBlank(), onClick = { vm.addFollow(text); text = "" }) {
+                    Icon(Icons.Default.Add, contentDescription = "Aggiungi")
+                }
+            }
+        }
+        items(vm.follows, key = { it }) { n ->
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(n, modifier = Modifier.weight(1f))
+                IconButton(onClick = { vm.removeFollow(n) }) { Icon(Icons.Default.Close, contentDescription = "Rimuovi $n") }
+            }
+        }
+        if (vm.follows.isNotEmpty()) {
+            item {
+                TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
+                    Text(if (vm.testRunning) "Ferma la prova" else "Prova sulle ultime ${vm.searchCount} anteprime per fonte")
+                }
+            }
+        }
+        if (vm.testRunning) {
+            item {
+                Text("${vm.testProgress.first + 1}/${vm.testProgress.second} · ${vm.testCurrent}", style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        } else if (vm.testDone && vm.testResults.isEmpty()) {
+            item { Text("Nessuna corrispondenza.", style = MaterialTheme.typography.bodySmall) }
+        }
+        vm.testResults.forEach { (p, hits) ->
+            item {
+                Text(p.title, style = MaterialTheme.typography.titleSmall)
+                hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(8).forEach { h ->
+                    Text(
+                        "p. ${h.page + 1} · ${h.keyword}: ${h.text.take(60)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().clickable { vm.pendingOpen = p.id to h.page }
+                    )
+                }
             }
         }
     }
