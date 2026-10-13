@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi

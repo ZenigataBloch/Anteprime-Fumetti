@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "it.example.anteprime"
+    namespace = "it.zenigata.anteprime"
     compileSdk = 34
     defaultConfig {
         applicationId = "it.example.anteprime"

@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import android.Manifest
 import android.app.NotificationChannel

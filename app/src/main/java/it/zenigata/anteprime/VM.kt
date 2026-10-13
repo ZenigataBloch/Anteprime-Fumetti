@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import android.app.Application
 import android.content.Context
@@ -12,6 +12,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,26 +78,48 @@ class VM(private val app: Application) : AndroidViewModel(app) {
             testRunning = true
             testDone = false
             testResults = emptyList()
+            val todo = list.filter { it.id !in busy } // quelle già in download dall'utente si saltano
+            val ids = todo.map { it.id }
+            busy += ids
             try {
-                for ((n, p) in list.withIndex()) {
-                    testProgress = n to list.size
-                    testCurrent = p.title
-                    if (p.id in busy) continue // già in download dall'utente
-                    busy += p.id
-                    try {
-                        val hits = FollowTest.check(repo, p, names)
-                        if (hits.isNotEmpty()) testResults = testResults + (p to hits)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        errors = errors + "Prova ${p.title}: ${e.message ?: e.javaClass.simpleName}"
-                    } finally {
-                        busy -= p.id
+                coroutineScope {
+                    // i download partono in parallelo (3 alla volta); l'OCR resta uno alla volta, appena ogni file è pronto
+                    val sem = Semaphore(3)
+                    val downloads = todo.map { p ->
+                        p to async(Dispatchers.IO) {
+                            sem.withPermit {
+                                try {
+                                    FollowTest.download(repo, p)
+                                    null
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    e
+                                }
+                            }
+                        }
+                    }
+                    for ((n, d) in downloads.withIndex()) {
+                        val p = d.first
+                        testProgress = n to todo.size
+                        testCurrent = p.title
+                        val err = d.second.await()
                         localIds = repo.localIds()
+                        try {
+                            if (err != null) throw err
+                            val hits = FollowTest.search(repo, p, names)
+                            if (hits.isNotEmpty()) testResults = testResults + (p to hits)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            errors = errors + "Prova ${p.title}: ${e.message ?: e.javaClass.simpleName}"
+                        }
                     }
                 }
                 testDone = true
             } finally {
+                busy -= ids
+                localIds = repo.localIds()
                 testRunning = false
             }
         }

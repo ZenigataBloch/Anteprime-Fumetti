@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 /** Tag delle note: libero, ma "Novembre 2026" e simili vengono riconosciuti come mesi (suggeriti e ordinati per data). */
 object Tags {

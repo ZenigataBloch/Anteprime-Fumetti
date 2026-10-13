@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import okhttp3.OkHttpClient
 import okhttp3.Request

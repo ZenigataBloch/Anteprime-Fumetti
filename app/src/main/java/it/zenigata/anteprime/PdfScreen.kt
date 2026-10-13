@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer

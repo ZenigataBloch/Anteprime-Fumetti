@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

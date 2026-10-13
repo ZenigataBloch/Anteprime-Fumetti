@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage

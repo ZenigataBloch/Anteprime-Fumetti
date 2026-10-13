@@ -1,4 +1,4 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import android.content.ClipData
 import android.content.ClipboardManager

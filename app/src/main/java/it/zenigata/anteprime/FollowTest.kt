@@ -1,15 +1,19 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Prova delle opere seguite su un'anteprima qualsiasi della lista: la scarica se manca, legge il testo (OCR, con cache)
- * e cerca i nomi con KeywordSearch, come fa FollowWorker. Usa la stessa coda OCR di Indexer (una lettura alla volta).
+ * Prova delle opere seguite su un'anteprima qualsiasi della lista: [download] la scarica se manca,
+ * [search] legge il testo (OCR, con cache) e cerca i nomi con KeywordSearch, come fa FollowWorker.
+ * L'OCR usa la stessa coda di Indexer (una lettura alla volta in tutta l'app).
  */
 object FollowTest {
-    suspend fun check(repo: Repo, p: Preview, names: List<String>): List<Hit> {
+    suspend fun download(repo: Repo, p: Preview) {
         if (p.id !in repo.localIds()) withContext(Dispatchers.IO) { repo.download(p) }
+    }
+
+    suspend fun search(repo: Repo, p: Preview, names: List<String>): List<Hit> {
         val file = repo.file(p)
         return Indexer.exclusive {
             val done = withContext(Dispatchers.IO) { PageText.load(file) }

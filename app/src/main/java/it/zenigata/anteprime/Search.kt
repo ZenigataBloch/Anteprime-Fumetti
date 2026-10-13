@@ -1,6 +1,6 @@
-package it.example.anteprime
+package it.zenigata.anteprime
 
-import it.example.anteprime.KeywordSearch.norm
+import it.zenigata.anteprime.KeywordSearch.norm
 import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.abs
