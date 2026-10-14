@@ -135,12 +135,19 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     /** Nessun risultato: riprova (testo già in cache, quindi veloce) con le varianti del nome e restituisce la prima che trova. */
     private suspend fun findSuggestion(list: List<Preview>, names: List<String>): String? {
-        val variants = names.flatMap { Variants.of(it) }.distinct()
+        val ids = repo.localIds()
+        val local = list.filter { it.id in ids }
+        // vocabolario: le parole dei PDF già letti (OCR in cache), per correggere refusi e scomporre le parole attaccate
+        val vocab = withContext(Dispatchers.IO) {
+            HashMap<String, Int>().also { v -> local.forEach { Suggest.vocab(PageText.load(repo.file(it)).values, v) } }
+        }
+        val smart = withContext(Dispatchers.Default) { names.flatMap { Suggest.candidates(it, vocab) } }
+        val variants = (names.flatMap { Variants.of(it) } + smart).distinct()
         if (variants.isEmpty()) return null
-        for (p in list) {
-            if (p.id !in repo.localIds()) continue
+        for (p in local) {
             val hits = runCatching { FollowTest.search(repo, p, variants) }.getOrNull() ?: continue
-            hits.firstOrNull()?.let { return it.keyword }
+            // tra le varianti trovate in questa anteprima, quella con più risultati
+            hits.groupingBy { it.keyword }.eachCount().maxByOrNull { it.value }?.let { return it.key }
         }
         return null
     }

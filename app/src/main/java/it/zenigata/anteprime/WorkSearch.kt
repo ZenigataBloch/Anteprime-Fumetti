@@ -66,7 +66,7 @@ fun WorkSearchDialog(vm: VM, onDismiss: () -> Unit) {
     )
 }
 
-/** Varianti di scrittura di un nome: apostrofo/'s (Heaven's ↔ Heaven ↔ Heavens), trattino/spazio. */
+/** Varianti di scrittura di un nome: apostrofo/'s (Heaven's ↔ Heaven ↔ Heavens), trattino/spazio. Scomposizione e refusi: vedi Suggest. */
 object Variants {
     fun of(name: String): List<String> {
         val n = name.trim().replace('\u2019', '\'')
@@ -79,8 +79,8 @@ object Variants {
             out += n + "'s"
             out += n + "s"
         }
-        if (n.contains('-')) out += n.replace('-', ' ')
-        if (n.contains(' ')) out += n.replace(' ', '-')
+        if (n.contains('-')) { out += n.replace('-', ' '); out += n.replace("-", "") }
+        if (n.contains(' ')) { out += n.replace(' ', '-'); out += n.replace(" ", "") }
         return out.filter { it.isNotBlank() && !it.equals(n, ignoreCase = true) }
     }
 }
