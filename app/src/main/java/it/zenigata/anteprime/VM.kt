@@ -67,6 +67,8 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var testDone by mutableStateOf(false)
     var testProgress by mutableStateOf(0 to 0)
     var testCurrent by mutableStateOf("")
+    /** "Stavi forse cercando": variante del nome (apostrofo, 's, trattino) che invece ha dato risultati. */
+    var suggestion by mutableStateOf<String?>(null)
     var testResults by mutableStateOf(listOf<Pair<Preview, List<Hit>>>())
     private var testJob: Job? = null
 
@@ -77,6 +79,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
             testRunning = true
             testDone = false
             testResults = emptyList()
+            suggestion = null
             val todo = list.filter { it.id !in busy } // quelle già in download dall'utente si saltano
             val ids = todo.map { it.id }
             busy += ids
@@ -115,6 +118,10 @@ class VM(private val app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
+                if (testResults.isEmpty()) {
+                    testCurrent = "Controllo varianti…"
+                    suggestion = findSuggestion(list, names)
+                }
                 testDone = true
             } finally {
                 busy -= ids
@@ -126,16 +133,30 @@ class VM(private val app: Application) : AndroidViewModel(app) {
 
     fun stopTest() { testJob?.cancel() }
 
+    /** Nessun risultato: riprova (testo già in cache, quindi veloce) con le varianti del nome e restituisce la prima che trova. */
+    private suspend fun findSuggestion(list: List<Preview>, names: List<String>): String? {
+        val variants = names.flatMap { Variants.of(it) }.distinct()
+        if (variants.isEmpty()) return null
+        for (p in list) {
+            if (p.id !in repo.localIds()) continue
+            val hits = runCatching { FollowTest.search(repo, p, variants) }.getOrNull() ?: continue
+            hits.firstOrNull()?.let { return it.keyword }
+        }
+        return null
+    }
+
     /** Tocco su una notifica di Follows: (id anteprima, pagina 0-based) da aprire appena la lista è pronta. */
     var pendingOpen by mutableStateOf<Pair<String, Int>?>(null)
     /** Aperto un PDF da un risultato della ricerca: tornando indietro si riapre l'elenco dei risultati. */
     var returnToSearch by mutableStateOf(false)
     var searchText by mutableStateOf("")
+    var showTutorial by mutableStateOf(!prefs.getBoolean("tutorialDone", false)) // mini tutorial al primo avvio
+    fun closeTutorial() { showTutorial = false; prefs.edit().putBoolean("tutorialDone", true).apply() }
     var wishTab by mutableStateOf(0) // Wishlist: 0 = note, 1 = opere seguite
     /** Quante anteprime per fonte si controllano nella ricerca (regolabile dalle impostazioni). */
     var searchCount by mutableStateOf(prefs.getInt("searchCount", 3))
-    @JvmName("updateSearchCount") fun setSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
-    fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false } }
+    fun setSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
+    fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false; suggestion = null } }
     fun handleIntent(i: Intent?) {
         val id = i?.getStringExtra(Follows.EXTRA_ID) ?: return
         pendingOpen = id to i.getIntExtra(Follows.EXTRA_PAGE, 0)

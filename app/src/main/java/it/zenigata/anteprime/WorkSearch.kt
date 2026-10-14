@@ -46,6 +46,9 @@ fun WorkSearchDialog(vm: VM, onDismiss: () -> Unit) {
                 } else if (vm.testDone && vm.testResults.isEmpty()) {
                     Text("Nessuna corrispondenza.", style = MaterialTheme.typography.bodySmall)
                 }
+                if (!vm.testRunning) vm.suggestion?.let { s ->
+                    TextButton(onClick = { vm.searchText = s; vm.testFollows(listOf(s)) }) { Text("Stavi forse cercando «$s»?") }
+                }
                 vm.testResults.forEach { (p, hits) ->
                     Text(p.title, style = MaterialTheme.typography.titleSmall)
                     hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(8).forEach { h ->
@@ -61,4 +64,23 @@ fun WorkSearchDialog(vm: VM, onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+/** Varianti di scrittura di un nome: apostrofo/'s (Heaven's ↔ Heaven ↔ Heavens), trattino/spazio. */
+object Variants {
+    fun of(name: String): List<String> {
+        val n = name.trim().replace('\u2019', '\'')
+        if (n.isBlank()) return emptyList()
+        val out = linkedSetOf<String>()
+        if (n.contains('\'')) {
+            out += n.replace("'", "")
+            out += n.replace(Regex("'s?$", RegexOption.IGNORE_CASE), "")
+        } else {
+            out += n + "'s"
+            out += n + "s"
+        }
+        if (n.contains('-')) out += n.replace('-', ' ')
+        if (n.contains(' ')) out += n.replace(' ', '-')
+        return out.filter { it.isNotBlank() && !it.equals(n, ignoreCase = true) }
+    }
 }

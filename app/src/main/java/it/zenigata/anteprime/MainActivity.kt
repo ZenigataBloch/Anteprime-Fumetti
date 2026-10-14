@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -127,6 +126,8 @@ fun App(vm: VM) {
             open = Opened(it, vm.repo.lastPage(it))
         }
     }
+
+    if (vm.showTutorial) TutorialDialog { vm.closeTutorial() }
 
     vm.update?.let { u ->
         AlertDialog(
