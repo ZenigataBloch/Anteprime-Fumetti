@@ -45,13 +45,15 @@ object Scraper {
         }
     }
 
-    /** True se l'URL risponde con un vero PDF (alcuni siti rispondono 200 con una pagina HTML al posto del 404). */
+    /** True se l'URL risponde con un file (non una pagina HTML: alcuni siti rispondono 200 al posto del 404). */
     private fun pdfExists(url: String): Boolean {
         gate.acquire()
         try {
             val req = request(url).newBuilder().header("Range", "bytes=0-0").build()
             return pageClient.newCall(req).execute().use { r ->
-                r.isSuccessful && r.header("Content-Type").orEmpty().contains("pdf", ignoreCase = true)
+                // niente pagine HTML (404 "morbidi"); il tipo esatto può variare (application/pdf, octet-stream...)
+                // e comunque il download controlla poi che il file inizi con %PDF
+                r.isSuccessful && !r.header("Content-Type").orEmpty().contains("html", ignoreCase = true)
             }
         } catch (e: Exception) {
             return false
@@ -69,11 +71,11 @@ object Scraper {
     )
 
     private val PDF_LINK_RE = Regex("""/media/paniniFiles/[\w\-]+\.pdf""")
-    private val ISSUE_NUM_RE = Regex("""A(\d+)[_-]""")
+    private val ISSUE_NUM_RE = Regex("""^A(\d+)(?=[_.\-])""", RegexOption.IGNORE_CASE)
     private val NUM_RE = Regex("""\d+""")
     private val ARTICLE_RE = Regex("""https://nerdpool\.it/anteprima-panini-(\d+)-[\w\-]+/""")
 
-    // ---------- Panini: link PDF in /media/paniniFiles/A###_Panini.pdf (oppure A###-Panini.pdf) ----------
+    // ---------- Panini: link PDF in /media/paniniFiles/ (A###.pdf, A###_Panini.pdf o A###-Panini.pdf: il nome è cambiato nel tempo) ----------
     fun panini(): List<Preview> {
         // l'elenco articoli di nerdpool parte subito, in parallelo con le pagine Panini
         val articlesJob = io.submit(Callable { runCatching { nerdpoolArticles() }.getOrDefault(emptyMap()) })
@@ -110,7 +112,7 @@ object Scraper {
         // così una nuova anteprima compare anche prima che Panini o nerdpool aggiornino le loro pagine
         out.keys.maxOrNull()?.let { top ->
             (top + 1..top + 2)
-                .flatMap { n -> listOf("_", "-").map { sep -> n to "https://www.panini.it/media/paniniFiles/A$n${sep}Panini.pdf" } }
+                .flatMap { n -> listOf("A$n.pdf", "A${n}_Panini.pdf", "A$n-Panini.pdf").map { f -> n to "https://www.panini.it/media/paniniFiles/$f" } }
                 .parMap { (n, u) -> if (pdfExists(u)) n to u else null }
                 .mapNotNull { it.getOrNull() }
                 .forEach { (n, u) -> out.putIfAbsent(n, Preview(Source.PANINI, "Panini Anteprima $n", u)) }
@@ -182,7 +184,7 @@ object Scraper {
     private fun fetchArticle(n: Int, articleUrl: String): Pair<Int, Preview>? {
         val html = get(articleUrl)
         val pdf = Regex(
-            """https?://www\.panini\.it/media/paniniFiles/A$n[_-]Panini\.pdf""",
+            """https?://www\.panini\.it/media/paniniFiles/A$n(?:[_-][\w\-]*)?\.pdf""",
             RegexOption.IGNORE_CASE
         ).find(html)?.value ?: return null
         val m = Regex("""annunci-di-([a-z]+)-(\d{4})""").find(articleUrl)
