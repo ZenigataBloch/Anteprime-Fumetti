@@ -408,6 +408,7 @@ private fun NoteCard(
 @Composable
 private fun FollowsTab(vm: VM) {
     var text by remember { mutableStateOf("") }
+    if (vm.showFollowResults && vm.testResults.isNotEmpty()) FollowResultsDialog(vm)
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text(
@@ -443,17 +444,32 @@ private fun FollowsTab(vm: VM) {
         } else if (vm.testDone && vm.testResults.isEmpty()) {
             item { Text("Nessuna corrispondenza.", style = MaterialTheme.typography.bodySmall) }
         }
-        vm.testResults.forEach { (p, hits) ->
-            item {
-                Text(p.title, style = MaterialTheme.typography.titleSmall)
-                hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(8).forEach { h ->
-                    Text(
-                        "p. ${h.page + 1} · ${h.keyword}: ${h.text.take(60)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxWidth().clickable { vm.pendingOpen = p.id to h.page }
-                    )
+        if (!vm.testRunning && vm.testResults.isNotEmpty()) {
+            item { TextButton(onClick = { vm.showFollowResults = true }) { Text("Risultati (${vm.testResults.size})") } }
+        }
+    }
+}
+
+/** Risultati della ricerca sopra "Opere seguite": il tocco apre il PDF alla pagina; con BACK dal PDF si ritorna a questa lista. */
+@Composable
+private fun FollowResultsDialog(vm: VM) {
+    AlertDialog(
+        onDismissRequest = { vm.showFollowResults = false },
+        title = { Text("Risultati") },
+        confirmButton = { TextButton(onClick = { vm.showFollowResults = false }) { Text("Chiudi") } },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                vm.testResults.forEach { (p, hits) ->
+                    Text(p.title, style = MaterialTheme.typography.titleSmall)
+                    hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(8).forEach { h ->
+                        Text(
+                            "p. ${h.page + 1} · ${h.keyword}: ${h.text.take(60)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth().clickable { vm.pendingOpen = p.id to h.page } // la finestra resta aperta (flag nel VM)
+                        )
+                    }
                 }
             }
         }
-    }
+    )
 }

@@ -72,6 +72,8 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     var suggestion by mutableStateOf<String?>(null)
     var testResults by mutableStateOf(listOf<Pair<Preview, List<Hit>>>())
     private var testJob: Job? = null
+    /** Finestra dei risultati della ricerca: sopra la scheda "Opere seguite"; il PDF aperto da un risultato torna qui con BACK. */
+    var showFollowResults by mutableStateOf(false)
 
     fun testFollows(names: List<String> = follows) {
         if (testRunning || names.isEmpty()) return
@@ -80,6 +82,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
             testRunning = true
             testDone = false
             testResults = emptyList()
+            showFollowResults = false
             suggestion = null
             val todo = list.filter { it.id !in busy } // quelle già in download dall'utente si saltano
             val ids = todo.map { it.id }
@@ -128,6 +131,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
                 busy -= ids
                 localIds = repo.localIds()
                 testRunning = false
+                if (testResults.isNotEmpty()) showFollowResults = true // a fine ricerca (o dopo "Ferma") i risultati si aprono da soli
             }
         }
     }
@@ -164,7 +168,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     /** Quante anteprime per fonte si controllano nella ricerca (regolabile dalle impostazioni). */
     var searchCount by mutableStateOf(prefs.getInt("searchCount", 3))
     fun changeSearchCount(n: Int) { searchCount = n.coerceIn(1, 10); prefs.edit().putInt("searchCount", searchCount).apply() }
-    fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false; suggestion = null } }
+    fun resetTest() { if (!testRunning) { testResults = emptyList(); testDone = false; suggestion = null; showFollowResults = false } }
     fun handleIntent(i: Intent?) {
         val id = i?.getStringExtra(Follows.EXTRA_ID) ?: return
         pendingOpen = id to i.getIntExtra(Follows.EXTRA_PAGE, 0)
