@@ -45,6 +45,21 @@ object Scraper {
         }
     }
 
+    /** True se l'URL risponde con un vero PDF (alcuni siti rispondono 200 con una pagina HTML al posto del 404). */
+    private fun pdfExists(url: String): Boolean {
+        gate.acquire()
+        try {
+            val req = request(url).newBuilder().header("Range", "bytes=0-0").build()
+            return pageClient.newCall(req).execute().use { r ->
+                r.isSuccessful && r.header("Content-Type").orEmpty().contains("pdf", ignoreCase = true)
+            }
+        } catch (e: Exception) {
+            return false
+        } finally {
+            gate.release()
+        }
+    }
+
     /** Cartella per la cache dell'archivio nerdpool. Impostala all'avvio: Scraper.cacheDir = filesDir (senza, niente cache su disco). */
     @Volatile var cacheDir: File? = null
 
@@ -90,6 +105,16 @@ object Scraper {
         val articles = runCatching { articlesJob.get() }.getOrDefault(emptyMap())
         runCatching { paniniArchive(articles, out.keys.toSet()) }.getOrNull()
             ?.forEach { (n, p) -> out.putIfAbsent(n, p) }
+
+        // i PDF seguono un nome prevedibile: si prova direttamente il numero successivo al più recente,
+        // così una nuova anteprima compare anche prima che Panini o nerdpool aggiornino le loro pagine
+        out.keys.maxOrNull()?.let { top ->
+            (top + 1..top + 2)
+                .flatMap { n -> listOf("_", "-").map { sep -> n to "https://www.panini.it/media/paniniFiles/A$n${sep}Panini.pdf" } }
+                .parMap { (n, u) -> if (pdfExists(u)) n to u else null }
+                .mapNotNull { it.getOrNull() }
+                .forEach { (n, u) -> out.putIfAbsent(n, Preview(Source.PANINI, "Panini Anteprima $n", u)) }
+        }
 
         withMonths(out)
         return (out.values + others)
