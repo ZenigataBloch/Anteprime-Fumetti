@@ -428,14 +428,14 @@ private fun FollowsTab(vm: VM) {
         }
         items(vm.follows, key = { it }) { n ->
             Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(n, modifier = Modifier.weight(1f))
+                Text(n, modifier = Modifier.weight(1f).clickable { if (!vm.testRunning) vm.testFollows(listOf(n)) })
                 IconButton(onClick = { vm.removeFollow(n) }) { Icon(Icons.Default.Close, contentDescription = "Rimuovi $n") }
             }
         }
         if (vm.follows.isNotEmpty()) {
             item {
                 TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
-                    Text(if (vm.testRunning) "Ferma la prova" else "Prova sulle ultime ${vm.searchCount} anteprime per fonte")
+                    Text(if (vm.testRunning) "Ferma la ricerca" else "Prova a cercare")
                 }
             }
         }

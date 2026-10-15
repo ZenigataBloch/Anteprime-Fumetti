@@ -268,7 +268,7 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
                     TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
                         Icon(BookSearchIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (vm.testRunning) "Ferma la ricerca" else "Cerca nelle anteprime")
+                        Text(if (vm.testRunning) "Ferma la ricerca" else "Prova a cercare")
                     }
                 }
                 if (vm.testRunning) {
