@@ -45,15 +45,26 @@ object Scraper {
         }
     }
 
-    /** True se l'URL risponde con un file (non una pagina HTML: alcuni siti rispondono 200 al posto del 404). */
+    /**
+     * True solo se l'URL è davvero un PDF: si leggono i primi 4 byte e devono essere "%PDF".
+     * (Controllare solo codice e Content-Type non basta: alcuni server rispondono "ok" anche per file inesistenti.)
+     */
     private fun pdfExists(url: String): Boolean {
         gate.acquire()
         try {
-            val req = request(url).newBuilder().header("Range", "bytes=0-0").build()
+            val req = request(url).newBuilder().header("Range", "bytes=0-3").build()
             return pageClient.newCall(req).execute().use { r ->
-                // niente pagine HTML (404 "morbidi"); il tipo esatto può variare (application/pdf, octet-stream...)
-                // e comunque il download controlla poi che il file inizi con %PDF
-                r.isSuccessful && !r.header("Content-Type").orEmpty().contains("html", ignoreCase = true)
+                if (!r.isSuccessful) return@use false
+                val head = ByteArray(4)
+                var got = 0
+                r.body!!.byteStream().use { i ->
+                    while (got < 4) {
+                        val n = i.read(head, got, 4 - got)
+                        if (n < 0) break
+                        got += n
+                    }
+                }
+                got == 4 && String(head, Charsets.US_ASCII) == "%PDF"
             }
         } catch (e: Exception) {
             return false
@@ -111,7 +122,7 @@ object Scraper {
         // i PDF seguono un nome prevedibile: si prova direttamente il numero successivo al più recente,
         // così una nuova anteprima compare anche prima che Panini o nerdpool aggiornino le loro pagine
         out.keys.maxOrNull()?.let { top ->
-            (top + 1..top + 2)
+            listOf(top + 1)
                 .flatMap { n -> listOf("A$n.pdf", "A${n}_Panini.pdf", "A$n-Panini.pdf").map { f -> n to "https://www.panini.it/media/paniniFiles/$f" } }
                 .parMap { (n, u) -> if (pdfExists(u)) n to u else null }
                 .mapNotNull { it.getOrNull() }
