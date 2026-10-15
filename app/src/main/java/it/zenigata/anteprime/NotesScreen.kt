@@ -432,12 +432,8 @@ private fun FollowsTab(vm: VM) {
                 IconButton(onClick = { vm.removeFollow(n) }) { Icon(Icons.Default.Close, contentDescription = "Rimuovi $n") }
             }
         }
-        if (vm.follows.isNotEmpty()) {
-            item {
-                TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
-                    Text(if (vm.testRunning) "Ferma la ricerca" else "Prova a cercare")
-                }
-            }
+        if (vm.testRunning) {
+            item { TextButton(onClick = { vm.stopTest() }) { Text("Ferma la ricerca") } }
         }
         if (vm.testRunning) {
             item {

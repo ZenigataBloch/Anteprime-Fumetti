@@ -117,37 +117,38 @@ object Follows {
         if (n >= MAX_TRIES) markChecked(c, listOf(id))
     }
 
+    /** Una sola notifica per tutto il controllo: elenca le anteprime con risultati; il tocco apre la prima. */
     @SuppressLint("MissingPermission")
-    internal fun notify(c: Context, p: Preview, hits: List<Hit>) {
+    internal fun notifyAll(c: Context, results: List<Pair<Preview, List<Hit>>>) {
+        if (results.isEmpty()) return
         val nm = NotificationManagerCompat.from(c)
         if (!nm.areNotificationsEnabled()) return
         if (Build.VERSION.SDK_INT >= 26) {
             c.getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(NotificationChannel(CHANNEL, "Opere seguite", NotificationManager.IMPORTANCE_DEFAULT))
         }
-        val first = hits.minByOrNull { it.page } ?: return
+        val (p0, h0) = results.first()
+        val first = h0.minByOrNull { it.page } ?: return
         val open = (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: return).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_ID, p.id)
+            putExtra(EXTRA_ID, p0.id)
             putExtra(EXTRA_PAGE, first.page)
         }
-        val pi = PendingIntent.getActivity(
-            c, p.id.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val lines = hits.distinctBy { it.keyword to it.page }.sortedBy { it.page }.take(6)
-            .map { "p. ${it.page + 1} · ${it.keyword}: ${it.text.take(60)}" }
-        val names = hits.map { it.keyword }.distinct().joinToString(", ")
-        val style = NotificationCompat.InboxStyle().setBigContentTitle("Trovato: $names")
-        lines.forEach { style.addLine(it) }
+        val pi = PendingIntent.getActivity(c, 0, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val names = results.flatMap { r -> r.second.map { it.keyword } }.distinct().joinToString(", ")
+        val title = "Trovato: $names"
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
+        results.take(8).forEach { (p, hits) -> style.addLine("${p.title} · p. ${hits.minOf { it.page } + 1}") }
+        if (results.size > 8) style.addLine("e altre ${results.size - 8}…")
         val n = NotificationCompat.Builder(c, CHANNEL)
             .setSmallIcon(c.applicationInfo.icon) // sostituiscilo con l'icona che usa già Notifier
-            .setContentTitle("Trovato: $names")
-            .setContentText("${p.title} · pagina ${first.page + 1}")
+            .setContentTitle(title)
+            .setContentText(if (results.size == 1) "${p0.title} · pagina ${first.page + 1}" else "${results.size} anteprime")
             .setStyle(style)
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build()
-        nm.notify(p.id.hashCode(), n)
+        nm.notify(1, n)
     }
 }
 
@@ -183,6 +184,7 @@ class FollowWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         if (todo.isEmpty()) return Result.success()
 
         // mentre un PDF viene letto (OCR), il successivo è già in download
+        val results = ArrayList<Pair<Preview, List<Hit>>>()
         val ready = Channel<Triple<Source, Preview, File>>(1)
         coroutineScope {
             launch(Dispatchers.IO) {
@@ -213,7 +215,7 @@ class FollowWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                         )
                         KeywordSearch.search(pages, follows, s)
                     }
-                    if (hits.isNotEmpty()) Follows.notify(app, p, hits)
+                    if (hits.isNotEmpty()) results += p to hits
                     Follows.markChecked(app, listOf(p.id))
                 } catch (e: CancellationException) {
                     throw e
@@ -222,6 +224,7 @@ class FollowWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 }
             }
         }
+        Follows.notifyAll(app, results)
         return Result.success()
     }
 }
