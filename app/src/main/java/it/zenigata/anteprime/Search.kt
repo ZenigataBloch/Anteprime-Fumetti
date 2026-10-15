@@ -333,9 +333,10 @@ object KeywordSearch {
 
     /** Parole intere; tra una parola e l'altra spazi facoltativi, così "X-Men", "X Men" e "XMEN" sono equivalenti. */
     private fun regexFor(keyword: String): Regex? {
-        val tokens = norm(keyword).split(' ').filter { it.isNotEmpty() }
+        // la "s" isolata (apostrofo: "Official's" -> "official s") non conta; nel testo può esserci o no ("Official's Blessing" = "Official Blessing")
+        val tokens = norm(keyword).split(' ').filterIndexed { i, t -> t.isNotEmpty() && !(i > 0 && t == "s") }
         if (tokens.isEmpty()) return null
-        return Regex("(?<![a-z0-9])" + tokens.joinToString("\\s*") { Regex.escape(it) } + "(?![a-z0-9])")
+        return Regex("(?<![a-z0-9])" + tokens.joinToString("(?:\\s*s)?\\s*") { Regex.escape(it) } + "(?![a-z0-9])")
     }
 
     private fun cardHits(kw: String, re: Regex, page: Int, c: Card): List<Hit> {

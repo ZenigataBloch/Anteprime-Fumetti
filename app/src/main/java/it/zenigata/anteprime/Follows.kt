@@ -258,7 +258,7 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
                 }
                 vm.follows.forEach { n ->
                     Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(n, modifier = Modifier.weight(1f))
+                        Text(n, modifier = Modifier.weight(1f).clickable { if (!vm.testRunning) vm.testFollows(listOf(n)) })
                         IconButton(onClick = { vm.removeFollow(n) }) {
                             Icon(Icons.Default.Close, contentDescription = "Rimuovi $n")
                         }
@@ -268,7 +268,7 @@ fun FollowsDialog(vm: VM, onDismiss: () -> Unit) {
                     TextButton(onClick = { if (vm.testRunning) vm.stopTest() else vm.testFollows() }) {
                         Icon(BookSearchIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (vm.testRunning) "Ferma la prova" else "Prova sulle ultime 3 anteprime")
+                        Text(if (vm.testRunning) "Ferma la ricerca" else "Cerca nelle anteprime")
                     }
                 }
                 if (vm.testRunning) {
