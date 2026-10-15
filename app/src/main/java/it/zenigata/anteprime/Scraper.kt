@@ -4,6 +4,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import java.io.File
+import java.net.URLDecoder
+import java.util.Calendar
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
@@ -219,8 +221,128 @@ object Scraper {
         }
     }
 
-    // ---------- Star Comics: /ftp/pdf/Anteprima/Anteprima_Mese_Anno_WEB.pdf ----------
-    fun star(): List<Preview> {
+    // ---------- MangaComicsMarket: fonte / fallback per Star Comics e J-POP ----------
+    // Pagina cataloghi: https://www.mangacomicsmarket.it/page/cataloghi
+    // Nome nel catalogo: "ANTEPRIMA [NUMERO] [EDITORE]" (es. ANTEPRIMA 422 STAR COMICS)
+    //                    "DIRECT JPOP [NUMERO] [MESE]"   (es. DIRECT JPOP 145 NOVEMBRE)
+    // File:  .../wysiwyg/Star%20Comics%20Gennaio.pdf  e  .../wysiwyg/Anteprima%20421%20jpop.pdf
+    private const val MCM_CATALOGHI = "https://www.mangacomicsmarket.it/page/cataloghi"
+    private const val MCM_PDF_BASE = "https://engine.mangacomicsmarket.it/media/uploads/wysiwyg/"
+    private val MCM_PDF_RE = Regex("""https?://engine\.mangacomicsmarket\.it/media/uploads/wysiwyg/[^"'\s<>()\\]+?\.pdf""", RegexOption.IGNORE_CASE)
+    private val MCM_STAR_TEXT_RE = Regex("""ANTEPRIMA\s+(\d+)\s+STAR\s+COMICS""", RegexOption.IGNORE_CASE)
+    private val MCM_JPOP_TEXT_RE = Regex("""DIRECT\s+JPOP\s+(\d+)\s+([A-Za-zà-ù]+)""", RegexOption.IGNORE_CASE)
+    private val MCM_STAR_FILE_RE = Regex("""star\s+comics\s+([a-zà-ù]+)""", RegexOption.IGNORE_CASE)
+    private val MCM_JPOP_FILE_RE = Regex("""anteprima\s+(\d+)\s+jpop""", RegexOption.IGNORE_CASE)
+    private const val JPOP_SEED = 421 // ultimo numero noto del file "Anteprima N jpop.pdf"
+
+    private fun nowIdx(): Int = Calendar.getInstance().let { it.get(Calendar.YEAR) * 12 + it.get(Calendar.MONTH) }
+
+    /** Il nome del file ha solo il mese: si sceglie l'occorrenza più vicina (da 3 mesi fa a 8 mesi avanti). */
+    private fun nearestMonth(mi: Int): Int {
+        val now = nowIdx()
+        var k = (now / 12) * 12 + mi
+        if (k < now - 3) k += 12
+        if (k > now + 8) k -= 12
+        return k
+    }
+
+    private fun monthLabel(k: Int) = MESI[k % 12].replaceFirstChar { it.uppercase() } + " " + k / 12
+
+    /** Tutti i PDF linkati dalla pagina cataloghi: (url, testo del link). Può essere vuoto se la pagina li carica via JavaScript. */
+    private fun mcmLinks(): List<Pair<String, String>> {
+        val html = get(MCM_CATALOGHI)
+        val out = linkedMapOf<String, String>()
+        Jsoup.parse(html, MCM_CATALOGHI).select("a[href]").forEach { a ->
+            val u = a.absUrl("href")
+            if (u.endsWith(".pdf", true) && u.contains("mangacomicsmarket.it/media/uploads/wysiwyg/", true)) {
+                out.putIfAbsent(u, a.text())
+            }
+        }
+        MCM_PDF_RE.findAll(unescape(html)).forEach { out.putIfAbsent(it.value, "") }
+        return out.toList()
+    }
+
+    private fun fileName(u: String): String = runCatching { URLDecoder.decode(u.substringAfterLast('/'), "UTF-8") }.getOrDefault(u)
+
+    /** Star Comics da MangaComicsMarket: prima i link in pagina, poi si prova il nome prevedibile "Star Comics [Mese].pdf". */
+    private fun mcmStar(): List<Preview> {
+        val found = linkedMapOf<Int, Preview>() // chiave: anno*12+mese (o -numero se il mese non è noto)
+        for ((u, text) in runCatching { mcmLinks() }.getOrDefault(emptyList())) {
+            val name = fileName(u)
+            val num = MCM_STAR_TEXT_RE.find(text)?.groupValues?.get(1)
+            val mi = MCM_STAR_FILE_RE.find(name)?.groupValues?.get(1)?.let { MESI.indexOf(it.lowercase()) }?.takeIf { it >= 0 }
+            if (mi == null && num == null) continue
+            val numPart = num?.let { " $it" }.orEmpty()
+            if (mi != null) {
+                val k = nearestMonth(mi)
+                found.putIfAbsent(k, Preview(Source.STAR, "Star Comics Anteprima$numPart · ${monthLabel(k)}", u))
+            } else {
+                found.putIfAbsent(-num!!.toInt(), Preview(Source.STAR, "Star Comics Anteprima$numPart", u))
+            }
+        }
+        // il sito potrebbe non elencare i link: si prova il nome del file per i mesi vicini
+        val now = nowIdx()
+        ((now - 1)..(now + 2)).filter { it !in found }
+            .parMap { k ->
+                val u = MCM_PDF_BASE + "Star%20Comics%20" + MESI[k % 12].replaceFirstChar { it.uppercase() } + ".pdf"
+                if (pdfExists(u)) k to u else null
+            }
+            .mapNotNull { it.getOrNull() }
+            .forEach { (k, u) -> found.putIfAbsent(k, Preview(Source.STAR, "Star Comics Anteprima · ${monthLabel(k)}", u)) }
+        return found.entries.sortedByDescending { it.key }.map { it.value }
+    }
+
+    /** J-POP da MangaComicsMarket: "DIRECT JPOP [N] [MESE]" in pagina, altrimenti si prova "Anteprima [N] jpop.pdf". */
+    private fun mcmJpop(): List<Preview> {
+        val found = linkedMapOf<String, Preview>() // chiave: nome file
+        var top = JPOP_SEED
+        for ((u, text) in runCatching { mcmLinks() }.getOrDefault(emptyList())) {
+            val name = fileName(u)
+            val fileNum = MCM_JPOP_FILE_RE.find(name)?.groupValues?.get(1)?.toIntOrNull()
+            val t = MCM_JPOP_TEXT_RE.find(text)
+            if (fileNum == null && t == null) continue
+            if (fileNum != null && fileNum > top) top = fileNum
+            val title = if (t != null) {
+                "J-POP Direct ${t.groupValues[1]} · ${t.groupValues[2].lowercase().replaceFirstChar { it.uppercase() }}"
+            } else "J-POP Anteprima $fileNum"
+            found.putIfAbsent(name.lowercase(), Preview(Source.JPOP, title, u))
+        }
+        // numeri successivi all'ultimo noto (il file segue il numero dell'Anteprima, non quello di Direct)
+        (top..(top + 2)).filter { n -> found.keys.none { it.contains("anteprima $n jpop") } }
+            .parMap { n ->
+                val u = MCM_PDF_BASE + "Anteprima%20$n%20jpop.pdf"
+                if (pdfExists(u)) n to u else null
+            }
+            .mapNotNull { it.getOrNull() }
+            .forEach { (n, u) -> found.putIfAbsent(fileName(u).lowercase(), Preview(Source.JPOP, "J-POP Anteprima $n", u)) }
+        return found.values.toList()
+    }
+
+    /** J-POP: categoria a parte, PDF scaricabili da MangaComicsMarket (più recente per primo). */
+    fun jpop(): List<Preview> {
+        val list = mcmJpop().sortedByDescending {
+            MCM_JPOP_FILE_RE.find(fileName(it.url))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        }
+        if (list.isEmpty()) throw IllegalStateException("nessuna anteprima J-POP trovata")
+        return list
+    }
+
+    // ---------- Star Comics: /ftp/pdf/Anteprima/Anteprima_Mese_Anno_WEB.pdf (+ fallback MangaComicsMarket) ----------
+    private val STAR_FILE_MONTH_RE = Regex("""([A-Za-zà-ù]+)[_\s\-]+(\d{4})""")
+
+    /** anno*12+mese di un'anteprima Star Comics (dal titolo "· Mese Anno" o dal nome file); null se non riconoscibile. */
+    private fun starKey(p: Preview): Int? {
+        monthIdx(p.title)?.let { return it }
+        for (s in listOf(p.title, fileName(p.url))) {
+            for (m in STAR_FILE_MONTH_RE.findAll(s)) {
+                val mi = MESI.indexOf(m.groupValues[1].lowercase())
+                if (mi >= 0) return m.groupValues[2].toInt() * 12 + mi
+            }
+        }
+        return null
+    }
+
+    private fun starSite(): List<Preview> {
         val base = "https://www.starcomics.com/news/novit-presentate-in-anteprima"
         val doc = Jsoup.parse(get(base), base)
         return doc.select("a[href*=/ftp/pdf/Anteprima/]")
@@ -229,6 +351,19 @@ object Scraper {
                 val u = a.absUrl("href")
                 Preview(Source.STAR, a.attr("title").ifBlank { u.substringAfterLast('/') }, u)
             }.distinctBy { it.url }
+    }
+
+    fun star(): List<Preview> {
+        val mcmJob = io.submit(Callable { runCatching { mcmStar() }.getOrDefault(emptyList()) })
+        val site = runCatching { starSite() }
+        val mcm = mcmJob.get()
+        val base = site.getOrDefault(emptyList())
+        // sito Star Comics non raggiungibile e nessun fallback: l'errore originale arriva all'app
+        if (site.isFailure && mcm.isEmpty()) throw site.exceptionOrNull()!!
+        // dal fallback si aggiungono solo i mesi che il sito Star Comics non ha già
+        val have = base.mapNotNull { starKey(it) }.toSet()
+        val extra = mcm.filter { p -> starKey(p)?.let { it !in have } ?: true }
+        return extra + base
     }
 
     // ---------- Manicomix: embed Issuu (nessun PDF diretto) ----------

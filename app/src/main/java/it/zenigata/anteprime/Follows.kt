@@ -162,7 +162,8 @@ class FollowWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val sources = listOf<Pair<Source, () -> List<Preview>>>(
             Source.PANINI to Scraper::panini,
             Source.STAR to Scraper::star,
-            Source.MANICOMIX to Scraper::manicomix
+            Source.MANICOMIX to Scraper::manicomix,
+            Source.JPOP to Scraper::jpop
         )
 
         val found = ArrayList<Pair<Source, Preview>>()

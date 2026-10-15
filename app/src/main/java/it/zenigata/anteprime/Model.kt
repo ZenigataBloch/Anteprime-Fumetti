@@ -2,7 +2,7 @@ package it.zenigata.anteprime
 
 import java.security.MessageDigest
 
-enum class Source(val label: String) { PANINI("Panini"), STAR("Star Comics"), MANICOMIX("Manicomix") }
+enum class Source(val label: String) { PANINI("Panini"), STAR("Star Comics"), MANICOMIX("Manicomix"), JPOP("J-POP") }
 
 private val HEX = "0123456789abcdef".toCharArray()
 private val ISSUU_D = Regex("""[?&;]d=([^&;]+)""")

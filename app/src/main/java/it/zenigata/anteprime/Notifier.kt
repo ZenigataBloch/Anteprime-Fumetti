@@ -72,9 +72,9 @@ object Notifier {
 
 class ScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        // i tre siti si interrogano in parallelo: il controllo dura quanto il più lento, non la somma
+        // i siti si interrogano in parallelo: il controllo dura quanto il più lento, non la somma
         val results = coroutineScope {
-            listOf(Scraper::panini, Scraper::star, Scraper::manicomix)
+            listOf(Scraper::panini, Scraper::star, Scraper::manicomix, Scraper::jpop)
                 .map { f -> async { runCatching { f() } } }
                 .awaitAll()
         }

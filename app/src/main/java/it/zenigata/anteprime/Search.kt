@@ -301,6 +301,7 @@ private fun parserFor(source: Source): CardParser = when (source) {
     Source.PANINI -> PaniniParser
     Source.STAR -> StarParser
     Source.MANICOMIX -> ManicomixParser
+    Source.JPOP -> JPopParser
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -310,6 +310,7 @@ private fun Source.iconRes(): Int = when (this) {
     Source.PANINI -> R.drawable.ic_panini
     Source.MANICOMIX -> R.drawable.ic_manicomix
     Source.STAR -> R.drawable.ic_starcomics
+    Source.JPOP -> R.drawable.ic_jpop
 }
 
 @Composable

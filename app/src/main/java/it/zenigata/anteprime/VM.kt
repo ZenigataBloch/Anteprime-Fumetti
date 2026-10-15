@@ -45,7 +45,8 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     private val fonti = listOf<Pair<Source, () -> List<Preview>>>(
         Source.PANINI to Scraper::panini,
         Source.STAR to Scraper::star,
-        Source.MANICOMIX to Scraper::manicomix
+        Source.MANICOMIX to Scraper::manicomix,
+        Source.JPOP to Scraper::jpop
     )
 
     var items by mutableStateOf(merged())
@@ -234,7 +235,7 @@ class VM(private val app: Application) : AndroidViewModel(app) {
             errors = emptyList()
             val errs = mutableListOf<String>()
             val fresh = mutableListOf<Preview>()
-            // le tre fonti partono insieme e ognuna compare in lista appena è pronta
+            // le quattro fonti partono insieme e ognuna compare in lista appena è pronta
             fonti.map { (s, f) ->
                 launch {
                     val r = withContext(Dispatchers.IO) {
