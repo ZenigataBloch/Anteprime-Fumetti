@@ -51,10 +51,13 @@ object Scraper {
      * True solo se l'URL è davvero un PDF: si leggono i primi 4 byte e devono essere "%PDF".
      * (Controllare solo codice e Content-Type non basta: alcuni server rispondono "ok" anche per file inesistenti.)
      */
-    private fun pdfExists(url: String): Boolean {
+    private fun pdfExists(url: String, retryNoRange: Boolean = false): Boolean =
+        pdfHead(url, true) || (retryNoRange && pdfHead(url, false))
+
+    private fun pdfHead(url: String, range: Boolean): Boolean {
         gate.acquire()
         try {
-            val req = request(url).newBuilder().header("Range", "bytes=0-3").build()
+            val req = request(url).newBuilder().apply { if (range) header("Range", "bytes=0-3") }.build()
             return pageClient.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) return@use false
                 val head = ByteArray(4)
@@ -280,12 +283,12 @@ object Scraper {
                 found.putIfAbsent(-num!!.toInt(), Preview(Source.STAR, "Star Comics Anteprima$numPart", u))
             }
         }
-        // il sito potrebbe non elencare i link: si prova il nome del file per i mesi vicini
+        // il sito potrebbe non elencare i link: si prova il nome del file da un mese fa a 4 mesi avanti
         val now = nowIdx()
-        ((now - 1)..(now + 2)).filter { it !in found }
+        ((now - 1)..(now + 4)).filter { it !in found }
             .parMap { k ->
                 val u = MCM_PDF_BASE + "Star%20Comics%20" + MESI[k % 12].replaceFirstChar { it.uppercase() } + ".pdf"
-                if (pdfExists(u)) k to u else null
+                if (pdfExists(u, retryNoRange = true)) k to u else null
             }
             .mapNotNull { it.getOrNull() }
             .forEach { (k, u) -> found.putIfAbsent(k, Preview(Source.STAR, "Star Comics Anteprima · ${monthLabel(k)}", u)) }
@@ -311,7 +314,7 @@ object Scraper {
         (top..(top + 2)).filter { n -> found.keys.none { it.contains("anteprima $n jpop") } }
             .parMap { n ->
                 val u = MCM_PDF_BASE + "Anteprima%20$n%20jpop.pdf"
-                if (pdfExists(u)) n to u else null
+                if (pdfExists(u, retryNoRange = true)) n to u else null
             }
             .mapNotNull { it.getOrNull() }
             .forEach { (n, u) -> found.putIfAbsent(fileName(u).lowercase(), Preview(Source.JPOP, "J-POP Anteprima $n", u)) }
