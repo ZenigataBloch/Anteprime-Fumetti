@@ -74,10 +74,14 @@ class VM(private val app: Application) : AndroidViewModel(app) {
     private var testJob: Job? = null
     /** Finestra dei risultati della ricerca: sopra la scheda "Opere seguite"; il PDF aperto da un risultato torna qui con BACK. */
     var showFollowResults by mutableStateOf(false)
+    /** Barra di ricerca sulla pagina principale (icona lente): i risultati escono nella finestra sopra. */
+    var showSearchBar by mutableStateOf(false)
+    /** Filtro editori della ricerca: vuoto = tutti. */
+    var searchSources by mutableStateOf(setOf<Source>())
 
     fun testFollows(names: List<String> = follows) {
         if (testRunning || names.isEmpty()) return
-        val list = items.groupBy { it.source }.values.flatMap { it.take(searchCount) } // le più recenti di ogni fonte
+        val list = items.filter { searchSources.isEmpty() || it.source in searchSources }.groupBy { it.source }.values.flatMap { it.take(searchCount) } // le più recenti di ogni fonte
         testJob = viewModelScope.launch {
             testRunning = true
             testDone = false

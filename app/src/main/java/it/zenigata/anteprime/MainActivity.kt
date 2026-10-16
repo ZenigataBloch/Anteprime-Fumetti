@@ -149,13 +149,11 @@ fun App(vm: VM) {
 @Composable
 fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Preview) -> Unit) {
     var onlyLocal by rememberSaveable { mutableStateOf(false) }
-    var showSearch by remember { mutableStateOf(vm.returnToSearch) } // tornando dal PDF di un risultato si riapre l'elenco
-    LaunchedEffect(Unit) { vm.returnToSearch = false }
     // pagina 0 = Tutti, poi una pagina per fonte; lo swipe cambia fonte
     val tabs: List<Source?> = remember { listOf<Source?>(null) + Source.values().toList() }
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
-    if (showSearch) WorkSearchDialog(vm) { showSearch = false }
+    if (vm.showFollowResults && vm.testResults.isNotEmpty()) FollowResultsDialog(vm) // risultati in overlay; da un PDF aperto con BACK si torna qui
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -177,10 +175,10 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
                             tint = if (onlyLocal) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
                     }
-                    IconButton(onClick = onNotes) {
+                    IconButton(onClick = { vm.resetTest(); onNotes() }) {
                         Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Wishlist")
                     }
-                    IconButton(onClick = { vm.resetTest(); showSearch = true }) { Icon(Icons.Default.Search, contentDescription = "Cerca un'opera") }
+                    IconButton(onClick = { vm.resetTest(); vm.showSearchBar = !vm.showSearchBar }) { Icon(Icons.Default.Search, contentDescription = "Cerca un'opera") }
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Impostazioni") }
                 }
             )
@@ -188,6 +186,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
     ) { pad ->
         Column(Modifier.padding(pad)) {
             if (vm.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (vm.showSearchBar) MainSearchBar(vm)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

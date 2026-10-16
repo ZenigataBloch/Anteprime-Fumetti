@@ -416,6 +416,7 @@ private fun FollowsTab(vm: VM) {
                 style = MaterialTheme.typography.bodySmall
             )
         }
+        item { MainSearchBar(vm) } // stessa barra di ricerca della pagina principale; risultati in overlay
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -433,26 +434,12 @@ private fun FollowsTab(vm: VM) {
                 IconButton(onClick = { vm.removeFollow(n) }) { Icon(Icons.Default.Close, contentDescription = "Rimuovi $n") }
             }
         }
-        if (vm.testRunning) {
-            item { TextButton(onClick = { vm.stopTest() }) { Text("Ferma la ricerca") } }
-        }
-        if (vm.testRunning) {
-            item {
-                Text("${vm.testProgress.first + 1}/${vm.testProgress.second} · ${vm.testCurrent}", style = MaterialTheme.typography.bodySmall)
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-        } else if (vm.testDone && vm.testResults.isEmpty()) {
-            item { Text("Nessuna corrispondenza.", style = MaterialTheme.typography.bodySmall) }
-        }
-        if (!vm.testRunning && vm.testResults.isNotEmpty()) {
-            item { TextButton(onClick = { vm.showFollowResults = true }) { Text("Risultati (${vm.testResults.size})") } }
-        }
     }
 }
 
 /** Risultati della ricerca sopra "Opere seguite": il tocco apre il PDF alla pagina; con BACK dal PDF si ritorna a questa lista. */
 @Composable
-private fun FollowResultsDialog(vm: VM) {
+internal fun FollowResultsDialog(vm: VM) {
     AlertDialog(
         onDismissRequest = { vm.showFollowResults = false },
         title = { Text("Risultati") },
