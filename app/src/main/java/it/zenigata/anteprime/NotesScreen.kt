@@ -407,7 +407,6 @@ private fun NoteCard(
 /** Scheda "Opere seguite" della Wishlist: aggiungi/rimuovi i nomi e prova la ricerca sulle ultime anteprime. */
 @Composable
 private fun FollowsTab(vm: VM) {
-    var text by remember { mutableStateOf("") }
     if (vm.showFollowResults && vm.testResults.isNotEmpty()) FollowResultsDialog(vm)
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -418,14 +417,13 @@ private fun FollowsTab(vm: VM) {
         }
         item { MainSearchBar(vm) } // stessa barra di ricerca della pagina principale; risultati in overlay
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = text, onValueChange = { text = it }, singleLine = true,
-                    label = { Text("Nome o serie") }, modifier = Modifier.weight(1f)
-                )
-                IconButton(enabled = text.isNotBlank(), onClick = { vm.addFollow(text); text = "" }) {
-                    Icon(Icons.Default.Add, contentDescription = "Aggiungi")
-                }
+            // un solo campo: lo stesso testo della barra di ricerca si può anche aggiungere alle opere seguite
+            val names = KeywordSearch.keywords(vm.searchText)
+            val already = names.isNotEmpty() && names.all { k -> vm.follows.any { KeywordSearch.norm(it) == KeywordSearch.norm(k) } }
+            TextButton(enabled = names.isNotEmpty() && !already, onClick = { vm.addFollow(vm.searchText) }) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(if (already) "Già nelle opere seguite" else "Aggiungi alle opere seguite")
             }
         }
         items(vm.follows, key = { it }) { n ->
