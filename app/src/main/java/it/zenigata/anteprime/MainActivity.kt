@@ -153,7 +153,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
     val tabs: List<Source?> = remember { listOf<Source?>(null) + Source.values().toList() }
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
-    BackHandler(vm.showSearchBar) { vm.resetTest(); vm.showSearchBar = false } // BACK chiude la ricerca sovrimpressa
+    if (vm.showSearchBar) MainSearchDialog(vm) // ricerca in finestra sovrapposta, come i risultati
     if (vm.showFollowResults && vm.testResults.isNotEmpty()) FollowResultsDialog(vm) // risultati in overlay; da un PDF aperto con BACK si torna qui
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -185,8 +185,7 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
             )
         }
     ) { pad ->
-        Box(Modifier.padding(pad)) {
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(pad)) {
             if (vm.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
@@ -246,12 +245,6 @@ fun ListScreen(vm: VM, onNotes: () -> Unit, onSettings: () -> Unit, onOpen: (Pre
                 }
             }
             }
-        }
-        // ricerca sovrimpressa: copre la lista senza spostarla
-        if (vm.showSearchBar) Surface(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp, shadowElevation = 8.dp
-        ) { MainSearchBar(vm) }
         }
     }
 }

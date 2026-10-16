@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -69,4 +70,16 @@ fun MainSearchBar(vm: VM) {
             TextButton(onClick = { vm.showFollowResults = true }) { Text("Risultati (${vm.testResults.size})") }
         }
     }
+}
+
+/** Finestra di ricerca sovrapposta alla pagina principale (come quella dei risultati); chiudendola si azzera la ricerca. */
+@Composable
+fun MainSearchDialog(vm: VM) {
+    val close = { vm.resetTest(); vm.showSearchBar = false }
+    AlertDialog(
+        onDismissRequest = close,
+        title = { Text("Cerca un'opera") },
+        text = { MainSearchBar(vm) },
+        confirmButton = { TextButton(onClick = close) { Text("Chiudi") } }
+    )
 }
